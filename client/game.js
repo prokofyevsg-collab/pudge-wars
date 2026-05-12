@@ -331,16 +331,56 @@ class GameScene extends Phaser.Scene {
     if (!me) return;
 
     const hpStr = '❤'.repeat(me.hp) + '🖤'.repeat(2 - me.hp);
-    const cdSec = (me.hookCooldown / 1000).toFixed(1);
-    const cdStr = me.hookCooldown > 0 ? `Хук: ${cdSec}с` : 'Хук: ГОТОВ ✓';
+    this.hudText.setText(hpStr);
 
-    this.hudText.setText(`${hpStr}   ${cdStr}`);
+    const g = this.uiGfx;
+    g.clear();
 
-    // Divider line (left/right zone)
-    this.uiGfx.clear();
-    this.uiGfx.lineStyle(1, 0x444466, 0.4)
+    // ── Hook cooldown arc (bottom-right zone) ──
+    const cx = this.W * 0.75, cy = this.H - 48, rad = 30;
+    const ready = me.hookCooldown <= 0;
+    const frac = ready ? 1 : 1 - me.hookCooldown / 6000;
+
+    // Background circle
+    g.lineStyle(6, 0x222233, 0.9).strokeCircle(cx, cy, rad);
+
+    // Progress arc
+    if (frac > 0) {
+      const color = ready ? 0x2ecc71 : 0xe74c3c;
+      g.lineStyle(6, color, 1);
+      g.beginPath();
+      const start = -Math.PI / 2;
+      const end = start + frac * Math.PI * 2;
+      g.arc(cx, cy, rad, start, end, false);
+      g.strokePath();
+    }
+
+    // Hook icon in center
+    g.lineStyle(3, ready ? 0x2ecc71 : 0x888888, 1);
+    g.beginPath();
+    g.moveTo(cx - 8, cy - 8);
+    g.lineTo(cx + 4, cy - 8);
+    g.arc(cx + 4, cy - 2, 6, -Math.PI / 2, Math.PI / 2, false);
+    g.lineTo(cx - 2, cy + 4);
+    g.strokePath();
+
+    // Cooldown seconds text
+    if (!ready) {
+      const cdSec = (me.hookCooldown / 1000).toFixed(1);
+      if (!this.cdText) {
+        this.cdText = this.add.text(cx, cy + rad + 12, '', {
+          fontSize: '13px', color: '#e74c3c', stroke: '#000', strokeThickness: 2,
+        }).setOrigin(0.5, 0).setDepth(15);
+      }
+      this.cdText.setText(cdSec + 'с').setVisible(true);
+    } else {
+      if (this.cdText) this.cdText.setVisible(false);
+    }
+
+    // ── Zone divider hint ──
+    g.lineStyle(1, 0x444466, 0.25)
       .beginPath()
-      .moveTo(this.W / 2, this.H - 80)
+      .moveTo(this.W / 2, this.H - 100)
       .lineTo(this.W / 2, this.H)
       .strokePath();
   }

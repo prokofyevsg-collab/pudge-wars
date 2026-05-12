@@ -16,12 +16,12 @@ app.use(express.static(path.join(__dirname, 'client')));
 const TICK_RATE = 30;
 const MAP_W = 800;
 const MAP_H = 600;
-const PLAYER_SPEED = 160;
-const HOOK_SPEED = 550;
-const HOOK_RANGE = 380;
-const HOOK_COOLDOWN = 2200; // ms
+const PLAYER_SPEED = 90;        // slow deliberate movement
+const HOOK_SPEED = 380;         // visible, dodgeable
+const HOOK_RANGE = 360;
+const HOOK_COOLDOWN = 6000;     // 6s like real Pudge Wars
 const PLAYER_RADIUS = 22;
-const HOOK_HIT_RADIUS = 20;
+const HOOK_HIT_RADIUS = 18;
 
 // Spawn positions: [team0p0, team1p0, team0p1, team1p1]
 const SPAWNS = [
@@ -302,11 +302,14 @@ class GameRoom {
 function tickBots(room, dt) {
   for (const [id, bot] of room.players) {
     if (!bot.isBot || !bot.alive) continue;
-    bot.botTimer = (bot.botTimer || 0) - dt;
+
+    // Reaction delay timer — bot "thinks" before acting
+    bot.reactionTimer = (bot.reactionTimer ?? 2.0) - dt;
+    if (bot.reactionTimer > 0) continue;
 
     // Find nearest enemy
     let nearestEnemy = null, nearestDist = Infinity;
-    for (const [eid, e] of room.players) {
+    for (const [, e] of room.players) {
       if (e.team === bot.team || !e.alive) continue;
       const d = dist(bot.x, bot.y, e.x, e.y);
       if (d < nearestDist) { nearestDist = d; nearestEnemy = e; }
@@ -314,21 +317,30 @@ function tickBots(room, dt) {
 
     if (!nearestEnemy) { bot.vx = 0; bot.vy = 0; continue; }
 
-    // Move toward enemy with some offset to avoid standing still
-    const dx = nearestEnemy.x - bot.x + Math.sin(Date.now() / 800 + id.charCodeAt(0)) * 60;
-    const dy = nearestEnemy.y - bot.y + Math.cos(Date.now() / 800 + id.charCodeAt(0)) * 60;
+    // Slow, wandering movement toward enemy
+    const wander = 80;
+    const t = Date.now() / 1200 + id.charCodeAt(4);
+    const dx = nearestEnemy.x - bot.x + Math.sin(t) * wander;
+    const dy = nearestEnemy.y - bot.y + Math.cos(t) * wander;
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    if (nearestDist > 120) {
-      bot.vx = (dx / len) * PLAYER_SPEED * 0.75;
-      bot.vy = (dy / len) * PLAYER_SPEED * 0.75;
+    const stopDist = 200;
+
+    if (nearestDist > stopDist) {
+      bot.vx = (dx / len) * PLAYER_SPEED * 0.55;
+      bot.vy = (dy / len) * PLAYER_SPEED * 0.55;
     } else {
       bot.vx = 0; bot.vy = 0;
     }
 
-    // Hook if cooldown ready and enemy is in range
-    if (bot.hookCooldown <= 0 && !room.hooks.has(id) && nearestDist < HOOK_RANGE * 0.9) {
-      const nx = nearestEnemy.x - bot.x, ny = nearestEnemy.y - bot.y;
-      const nl = Math.sqrt(nx * nx + ny * ny);
+    // Hook only when cooldown ready + close enough + with inaccuracy
+    const hookRange = HOOK_RANGE * 0.65;
+    if (bot.hookCooldown <= 0 && !room.hooks.has(id) && nearestDist < hookRange) {
+      // Add aim error so player can dodge
+      const aimError = 40;
+      const targetX = nearestEnemy.x + (Math.random() - 0.5) * aimError;
+      const targetY = nearestEnemy.y + (Math.random() - 0.5) * aimError;
+      const nx = targetX - bot.x, ny = targetY - bot.y;
+      const nl = Math.sqrt(nx * nx + ny * ny) || 1;
       bot.hookCooldown = HOOK_COOLDOWN;
       room.hooks.set(id, {
         ownerId: id,
@@ -338,6 +350,8 @@ function tickBots(room, dt) {
         startX: bot.x, startY: bot.y,
         returning: false, caughtId: null,
       });
+      // Reset reaction timer after hooking — bot pauses again
+      bot.reactionTimer = 1.5 + Math.random() * 1.5;
     }
   }
 }
