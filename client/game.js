@@ -250,56 +250,109 @@ function buildMap(obstacles) {
 const charEntries = new Map();
 const playerSlots = new Map();
 
-function makeFallbackBody(color) {
+function makePudgeBody(teamColor) {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.22, 0.45, 4, 8),
-    new THREE.MeshLambertMaterial({ color })
+  const tc = new THREE.Color(teamColor);
+
+  const skin  = new THREE.MeshLambertMaterial({ color: 0x909040, emissive: tc, emissiveIntensity: 0.18 });
+  const red   = new THREE.MeshLambertMaterial({ color: 0xcc1010 });
+  const metal = new THREE.MeshStandardMaterial({ color: 0x909099, metalness: 0.88, roughness: 0.14 });
+  const chain = new THREE.MeshStandardMaterial({ color: 0x555560, metalness: 0.75, roughness: 0.32 });
+  const brown = new THREE.MeshLambertMaterial({ color: 0x6b3318 });
+  const ivory = new THREE.MeshLambertMaterial({ color: 0xe8e0c8 });
+  const blood = new THREE.MeshLambertMaterial({ color: 0xaa0808 });
+
+  function m(geo, mat, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    mesh.rotation.set(rx, ry, rz);
+    mesh.scale.set(sx, sy, sz);
+    mesh.castShadow = true;
+    g.add(mesh);
+    return mesh;
+  }
+
+  // Жирное тело
+  m(new THREE.SphereGeometry(0.28, 12, 9), skin, 0, 0.37, 0, 0, 0, 0, 1.3, 0.95, 1.05);
+  // Живот (выпуклый спереди)
+  m(new THREE.SphereGeometry(0.22, 10, 8), skin, 0, 0.28, 0.15, 0, 0, 0, 1.0, 0.75, 0.7);
+  // Большая голова
+  m(new THREE.SphereGeometry(0.24, 12, 9), skin, 0, 0.75, 0, 0, 0, 0, 1.05, 1.0, 1.0);
+  // Злые красные глаза
+  m(new THREE.SphereGeometry(0.048, 7, 6), red,  -0.09, 0.81, 0.20);
+  m(new THREE.SphereGeometry(0.048, 7, 6), red,   0.09, 0.81, 0.20);
+  // Зрачки
+  m(new THREE.SphereGeometry(0.024, 5, 4), new THREE.MeshLambertMaterial({ color: 0x110000 }), -0.09, 0.81, 0.235);
+  m(new THREE.SphereGeometry(0.024, 5, 4), new THREE.MeshLambertMaterial({ color: 0x110000 }),  0.09, 0.81, 0.235);
+  // Пасть
+  m(new THREE.CylinderGeometry(0.12, 0.09, 0.05, 14, 1, false, 0, Math.PI),
+    new THREE.MeshLambertMaterial({ color: 0x880000 }), 0, 0.63, 0.21, Math.PI, 0, 0);
+  // Зубы (4 штуки)
+  [-0.07, -0.02, 0.03, 0.08].forEach((tx, i) => {
+    m(new THREE.BoxGeometry(0.036, 0.055, 0.022), ivory, tx, 0.60, 0.22);
+  });
+  // Шрамы на голове (полоски)
+  m(new THREE.BoxGeometry(0.04, 0.006, 0.01), new THREE.MeshLambertMaterial({ color: 0x554020 }), -0.05, 0.95, 0.19);
+  m(new THREE.BoxGeometry(0.04, 0.006, 0.01), new THREE.MeshLambertMaterial({ color: 0x554020 }),  0.06, 0.90, 0.20);
+
+  // Пояс
+  m(new THREE.TorusGeometry(0.27, 0.038, 7, 18), brown, 0, 0.22, 0, Math.PI / 2, 0, 0);
+  m(new THREE.BoxGeometry(0.08, 0.055, 0.025), metal, 0, 0.22, 0.28); // пряжка
+
+  // Левая рука (поднята вверх — держит цепь)
+  m(new THREE.CapsuleGeometry(0.08, 0.22, 4, 8), skin, -0.30, 0.63, 0, 0, 0, -Math.PI * 0.35);
+  m(new THREE.SphereGeometry(0.10, 8, 7), skin, -0.44, 0.79, 0); // кулак
+  // Цепь (5 звеньев)
+  for (let i = 0; i < 5; i++) {
+    m(new THREE.TorusGeometry(0.038, 0.013, 5, 9), chain,
+      -0.44 - i * 0.045, 0.87 + i * 0.07, 0, 0, (i % 2) * Math.PI / 2, 0);
+  }
+  // Крюк над цепью
+  const hPts = [
+    new THREE.Vector3(0, 0, 0),      new THREE.Vector3(-0.05, 0.05, 0),
+    new THREE.Vector3(-0.11, 0.04, 0), new THREE.Vector3(-0.13, -0.01, 0),
+    new THREE.Vector3(-0.11, -0.08, 0), new THREE.Vector3(-0.05, -0.09, 0),
+    new THREE.Vector3(-0.01, -0.05, 0),
+  ];
+  const hm = new THREE.Mesh(
+    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(hPts), 14, 0.018, 7),
+    metal
   );
-  body.position.y = 0.5; body.castShadow = true; g.add(body);
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.18, 8, 8),
-    new THREE.MeshLambertMaterial({ color })
-  );
-  head.position.y = 1.0; head.castShadow = true; g.add(head);
+  hm.position.set(-0.65, 1.20, 0); hm.castShadow = true; g.add(hm);
+
+  // Правая рука (вниз, тесак)
+  m(new THREE.CapsuleGeometry(0.075, 0.19, 4, 8), skin, 0.30, 0.47, 0, 0, 0, Math.PI * 0.22);
+  m(new THREE.SphereGeometry(0.09, 8, 7), skin, 0.40, 0.29, 0.04); // кулак
+  m(new THREE.CylinderGeometry(0.024, 0.019, 0.16, 7), brown, 0.46, 0.22, 0.06, 0, 0, Math.PI / 4); // рукоять
+  m(new THREE.BoxGeometry(0.15, 0.13, 0.022), metal, 0.52, 0.12, 0.04, 0, 0, Math.PI / 6); // лезвие
+
+  // Кровь (пятна на теле)
+  [[0.09, 0.45, 0.27], [-0.13, 0.55, 0.22], [0.04, 0.68, 0.21], [-0.06, 0.32, 0.28], [0.15, 0.30, 0.20]]
+    .forEach(([bx, by, bz]) => {
+      m(new THREE.SphereGeometry(0.034, 5, 4), blood, bx, by, bz, 0, 0, 0, 1, 0.28, 1);
+    });
+
   return g;
 }
 
-async function getOrCreateChar(id, team) {
+function getOrCreateChar(id, team) {
   if (charEntries.has(id)) return charEntries.get(id);
-
   if (!playerSlots.has(id)) playerSlots.set(id, playerSlots.size);
-  const letter = CHAR_LETTERS[playerSlots.get(id) % CHAR_LETTERS.length];
-  const color  = TEAM_COLORS[team];
-  const group  = new THREE.Group();
 
+  const color = TEAM_COLORS[team];
+  const group = new THREE.Group();
+
+  // Кольцо команды на земле
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.28, 0.40, 24),
-    new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+    new THREE.RingGeometry(0.32, 0.46, 24),
+    new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
   );
   ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.005;
+  ring.position.y = 0.006;
+  ring.userData.isRing = true;
   group.add(ring);
 
-  const base = await loadChar(letter);
-  if (base) {
-    const model = base.clone();
-    model.scale.setScalar(0.55);
-    model.rotation.y = Math.PI * 1.25;
-    model.traverse(c => {
-      if (!c.isMesh) return;
-      c.castShadow = true; c.receiveShadow = true;
-      c.material = c.material.clone();
-      c.material.alphaTest   = 0.1;
-      c.material.transparent = false;
-      c.material.depthWrite  = true;
-      c.material.emissive    = new THREE.Color(color);
-      c.material.emissiveIntensity = 0.35;
-    });
-    group.add(model);
-  } else {
-    group.add(makeFallbackBody(color));
-  }
+  group.add(makePudgeBody(color));
 
   scene.add(group);
   const entry = { group, ring, team };
@@ -751,21 +804,23 @@ function drawJoysticks() {
 }
 
 // ── Render loop ───────────────────────────────────────────────────────────────
-async function updatePlayers() {
+function updatePlayers() {
   const activeIds = new Set(sPlayers.map(p => p.id));
   for (const id of charEntries.keys()) if (!activeIds.has(id)) removeChar(id);
 
   for (const p of sPlayers) {
-    const entry = await getOrCreateChar(p.id, p.team);
+    const entry = getOrCreateChar(p.id, p.team);
     entry.group.position.lerp(sw(p.x, p.y, 0), 0.28);
-    entry.ring.material.opacity = p.alive ? 0.85 : 0.2;
+    entry.ring.material.opacity = p.alive ? 0.90 : 0.2;
     entry.group.traverse(c => {
-      if (!c.isMesh || !c.material) return;
+      if (!c.isMesh || !c.material || c.userData.isRing) return;
       if (!p.alive) {
-        c.material.transparent = true; c.material.opacity = 0.3; c.material.depthWrite = false;
+        c.material.transparent = true; c.material.opacity = 0.28; c.material.depthWrite = false;
       } else {
         c.material.transparent = false; c.material.opacity = 1; c.material.depthWrite = true;
-        c.material.emissiveIntensity = p.hitFlash > 0 ? 1.0 : (p.id === myId ? 0.55 : 0.35);
+        if (c.material.emissive) {
+          c.material.emissiveIntensity = p.hitFlash > 0 ? 1.0 : (p.id === myId ? 0.35 : 0.18);
+        }
       }
     });
   }
@@ -800,7 +855,7 @@ function updateAimFromJoystick() {
 function animate() {
   requestAnimationFrame(animate);
   if (gameState === 'playing') {
-    updatePlayers();
+    updatePlayers(); // sync now — no GLB loading
     updateHooks();
     animateTorches();
     updateAimFromJoystick();
