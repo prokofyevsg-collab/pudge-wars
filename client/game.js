@@ -1,589 +1,626 @@
-'use strict';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// ── Config ──────────────────────────────────────────────────────────────────
-const SERVER_URL = window.location.origin; // same-origin; change if hosted separately
-
-const TEAM_COLORS  = [0xe74c3c, 0x2980b9]; // red, blue
-const TEAM_NAMES   = ['Красные', 'Синие'];
+// ── Constants ────────────────────────────────────────────────────────────────
+const SERVER_URL   = window.location.origin;
 const MAP_W = 800, MAP_H = 600;
+const S = 0.01;          // server→world scale: 800→8, 600→6
+const TEAM_COLORS  = [0xe74c3c, 0x2980b9];
+const TEAM_HEX     = ['#e74c3c', '#2980b9'];
+const TEAM_NAMES   = ['Красные', 'Синие'];
+const CHAR_LETTERS = 'abcdefghijklmnopqr'.split('');
+const VIEW_SIZE    = 7;  // orthographic half-height in world units
 
-// ── Telegram init ────────────────────────────────────────────────────────────
+// ── Telegram ─────────────────────────────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const tgUser = tg?.initDataUnsafe?.user ?? null;
 
-// ══════════════════════════════════════════════════════════════════════════════
-// MenuScene
-// ══════════════════════════════════════════════════════════════════════════════
-class MenuScene extends Phaser.Scene {
-  constructor() { super('MenuScene'); }
+// ── Renderer ─────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setSize(window.innerWidth, window.innerHeight);
 
-  create() {
-    const W = this.scale.width, H = this.scale.height;
+// ── Scene ─────────────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x110008);
+scene.fog = new THREE.FogExp2(0x110008, 0.07);
 
-    // Background
-    this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
-    drawGrid(this, W, H, 60, 0x1a1a3a, 0.4);
+// ── Camera (isometric orthographic) ──────────────────────────────────────────
+const aspect = window.innerWidth / window.innerHeight;
+const camera = new THREE.OrthographicCamera(
+  -VIEW_SIZE * aspect, VIEW_SIZE * aspect, VIEW_SIZE, -VIEW_SIZE, 0.1, 100
+);
+// Diablo-style: above and behind map center
+const MCX = MAP_W * S / 2, MCZ = MAP_H * S / 2;
+camera.position.set(MCX + 7, 11, MCZ + 9);
+camera.lookAt(MCX, 0, MCZ);
 
-    // Title
-    this.add.text(W / 2, H * 0.22, 'PUDGE WARS', {
-      fontSize: '52px', fontFamily: 'Arial Black',
-      color: '#e74c3c', stroke: '#000', strokeThickness: 8,
-    }).setOrigin(0.5);
+// ── Lighting ──────────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xffe4cc, 0.55));
 
-    this.add.text(W / 2, H * 0.22 + 60, '2  vs  2  •  Хукай и побеждай', {
-      fontSize: '18px', color: '#8888aa',
-    }).setOrigin(0.5);
+const sun = new THREE.DirectionalLight(0xfff5e0, 1.1);
+sun.position.set(8, 16, 8);
+sun.castShadow = true;
+Object.assign(sun.shadow.mapSize, { width: 1024, height: 1024 });
+Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 1, far: 50 });
+scene.add(sun);
 
-    // Instructions card
-    const cardY = H * 0.55;
-    this.add.rectangle(W / 2, cardY, Math.min(W - 40, 380), 120, 0x1a1a3a, 0.9)
-      .setStrokeStyle(1, 0x3a3a6a);
-    this.add.text(W / 2, cardY, [
-      '🕹  Левый палец — джойстик движения',
-      '🎯  Правый палец — цель хука',
-      '💀  2 попадания = враг повержен',
-    ].join('\n'), {
-      fontSize: '15px', color: '#ccc', align: 'left',
-      lineSpacing: 8,
-    }).setOrigin(0.5);
+// Atmospheric torches
+const torch = (x, z) => {
+  const l = new THREE.PointLight(0xff7700, 2.0, 7);
+  l.position.set(x, 1.2, z);
+  scene.add(l);
+  return l;
+};
+const torches = [
+  torch(0.5, 0.5), torch(MAP_W * S - 0.5, MAP_H * S - 0.5),
+  torch(0.5, MAP_H * S - 0.5), torch(MAP_W * S - 0.5, 0.5),
+];
 
-    // Find game button
-    const btnY = H * 0.76;
-    const btn = this.add.rectangle(W / 2, btnY, 220, 52, 0xe74c3c)
-      .setInteractive({ useHandCursor: true });
-    const btnText = this.add.text(W / 2, btnY, 'НАЙТИ ИГРУ  (2v2)', {
-      fontSize: '18px', fontFamily: 'Arial Black', color: '#fff',
-    }).setOrigin(0.5);
+// ── GLB loader ────────────────────────────────────────────────────────────────
+const gltfLoader = new GLTFLoader();
+const modelCache = new Map(); // letter → THREE.Group
 
-    btn.on('pointerover',  () => btn.setFillStyle(0xc0392b));
-    btn.on('pointerout',   () => btn.setFillStyle(0xe74c3c));
-    btn.on('pointerdown',  () => {
-      btn.setFillStyle(0x922b21);
-      btnText.setText('...');
-      this.scene.start('GameScene', { mode: 'pvp' });
-    });
-
-    // Bot test button
-    const botBtnY = H * 0.88;
-    const botBtn = this.add.rectangle(W / 2, botBtnY, 220, 52, 0x27ae60)
-      .setInteractive({ useHandCursor: true });
-    const botBtnText = this.add.text(W / 2, botBtnY, 'ИГРАТЬ vs БОТЫ', {
-      fontSize: '18px', fontFamily: 'Arial Black', color: '#fff',
-    }).setOrigin(0.5);
-
-    botBtn.on('pointerover',  () => botBtn.setFillStyle(0x1e8449));
-    botBtn.on('pointerout',   () => botBtn.setFillStyle(0x27ae60));
-    botBtn.on('pointerdown',  () => {
-      botBtn.setFillStyle(0x145a32);
-      botBtnText.setText('...');
-      this.scene.start('GameScene', { mode: 'bots' });
-    });
-  }
+function loadChar(letter) {
+  if (modelCache.has(letter)) return Promise.resolve(modelCache.get(letter));
+  return new Promise(resolve => {
+    const url = `assets/chars/Models/GLB%20format/character-${letter}.glb`;
+    gltfLoader.load(url, gltf => {
+      const model = gltf.scene;
+      model.traverse(c => { if (c.isMesh) c.castShadow = true; });
+      modelCache.set(letter, model);
+      resolve(model);
+    }, undefined, () => resolve(null));
+  });
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// GameScene
-// ══════════════════════════════════════════════════════════════════════════════
-// 18 characters, assigned round-robin per player slot
-const CHAR_KEYS = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r'];
-
-class GameScene extends Phaser.Scene {
-  constructor() { super('GameScene'); }
-
-  init(data) {
-    this.mode = data?.mode || 'pvp';
-  }
-
-  preload() {
-    CHAR_KEYS.forEach(k => {
-      this.load.image(`char-${k}`, `assets/chars/char-${k}.png`);
-    });
-  }
-
-  create() {
-    const W = this.scale.width, H = this.scale.height;
-    this.W = W; this.H = H;
-    this.scaleX = W / MAP_W;
-    this.scaleY = H / MAP_H;
-
-    // State
-    this.socket      = null;
-    this.myId        = null;
-    this.myTeam      = null;
-    this.started     = false;
-    this.obstacles   = [];
-    this.serverPlayers = [];
-    this.serverHooks   = [];
-
-    // Graphics layers
-    this.bgGfx     = this.add.graphics().setDepth(0);
-    this.obstGfx   = this.add.graphics().setDepth(1);
-    this.hookGfx   = this.add.graphics().setDepth(2);
-    this.playerGfx = this.add.graphics().setDepth(3);
-    this.uiGfx     = this.add.graphics().setDepth(10);
-
-    // Sprite containers: id -> { img, mask, maskGfx }
-    this.charSprites = new Map();
-    // Player slot index: id -> number (for char key assignment)
-    this.playerSlots = new Map();
-
-    // Text layers
-    this.nameTexts  = new Map(); // id -> Text
-    this.statusText = this.add.text(W / 2, H / 2, 'Подключение...', {
-      fontSize: '24px', color: '#fff', align: 'center',
-    }).setOrigin(0.5).setDepth(15);
-
-    this.hudText = this.add.text(10, 10, '', {
-      fontSize: '16px', color: '#fff', stroke: '#000', strokeThickness: 3,
-    }).setDepth(15);
-
-    this.teamText = this.add.text(W - 10, 10, '', {
-      fontSize: '16px', color: '#fff', stroke: '#000', strokeThickness: 3,
-      align: 'right',
-    }).setOrigin(1, 0).setDepth(15);
-
-    // Joystick visuals
-    this.joyBase  = this.add.circle(0, 0, 55, 0xffffff, 0.12).setDepth(12).setVisible(false);
-    this.joyThumb = this.add.circle(0, 0, 24, 0xffffff, 0.40).setDepth(12).setVisible(false);
-
-    // Hook aim dot
-    this.hookDot = this.add.circle(0, 0, 10, 0xffff00, 0.6).setDepth(12).setVisible(false);
-
-    // Input state
-    this.joy = { active: false, pid: -1, baseX: 0, baseY: 0, nx: 0, ny: 0 };
-    this.hookPtr = { active: false, pid: -1 };
-    this.inputDirty = false;
-
-    this.input.addPointer(3);
-    this.input.on('pointerdown', this.onDown, this);
-    this.input.on('pointermove', this.onMove, this);
-    this.input.on('pointerup',   this.onUp,   this);
-
-    this.connectSocket();
-  }
-
-  // ── Socket ─────────────────────────────────────────────────────────────────
-  connectSocket() {
-    this.socket = io(SERVER_URL, { transports: ['websocket'] });
-
-    this.socket.on('connect', () => {
-      this.myId = this.socket.id;
-      if (this.mode === 'bots') {
-        this.statusText.setText('Подготовка ботов...');
-        this.socket.emit('play_vs_bots', { user: tgUser });
-      } else {
-        this.statusText.setText('Поиск игроков...\n0 / 4');
-        this.socket.emit('join_queue', { user: tgUser });
-      }
-    });
-
-    this.socket.on('queue_status', d => {
-      this.statusText.setText(`Поиск игроков...\n${d.inQueue} / 4`);
-    });
-
-    this.socket.on('game_start', d => {
-      this.myId      = this.socket.id;
-      this.obstacles = d.obstacles;
-      this.started   = true;
-      this.statusText.setVisible(false);
-
-      const me = d.players.find(p => p.id === this.myId);
-      if (me) {
-        this.myTeam = me.team;
-        this.teamText.setText(`Команда: ${TEAM_NAMES[me.team]}`);
-        this.teamText.setColor(me.team === 0 ? '#e74c3c' : '#2980b9');
-      }
-
-      this.drawBackground();
-      this.serverPlayers = d.players;
-    });
-
-    this.socket.on('state', d => {
-      if (!this.started) return;
-      this.serverPlayers = d.players;
-      this.serverHooks   = d.hooks;
-    });
-
-    this.socket.on('player_left', d => {
-      this.serverPlayers = this.serverPlayers.filter(p => p.id !== d.id);
-      const t = this.nameTexts.get(d.id);
-      if (t) { t.destroy(); this.nameTexts.delete(d.id); }
-      const s = this.charSprites.get(d.id);
-      if (s) { s.img.destroy(); s.maskShape.destroy(); this.charSprites.delete(d.id); }
-    });
-
-    this.socket.on('game_over', d => {
-      this.showGameOver(d.winner);
-    });
-
-    this.socket.on('disconnect', () => {
-      if (!this.started) return;
-      this.showMessage('Соединение потеряно');
-      this.time.delayedCall(2000, () => this.scene.start('MenuScene'));
-    });
-  }
-
-  // ── Background ─────────────────────────────────────────────────────────────
-  drawBackground() {
-    const g = this.bgGfx;
-    g.clear();
-
-    // Dungeon floor — warm orange/brown like the Kenney modular environment
-    g.fillStyle(0x7a4a28).fillRect(0, 0, this.W, this.H);
-
-    // Floor tile grid
-    const tileSize = 48 * Math.min(this.scaleX, this.scaleY);
-    g.lineStyle(1, 0x5a3618, 0.6);
-    for (let x = 0; x < this.W; x += tileSize) {
-      g.beginPath().moveTo(x, 0).lineTo(x, this.H).strokePath();
-    }
-    for (let y = 0; y < this.H; y += tileSize) {
-      g.beginPath().moveTo(0, y).lineTo(this.W, y).strokePath();
-    }
-
-    // Dungeon border walls (thick purple/stone)
-    const bw = 16;
-    g.fillStyle(0x5a4a7a);
-    g.fillRect(0, 0, this.W, bw);           // top
-    g.fillRect(0, this.H - bw, this.W, bw); // bottom
-    g.fillRect(0, 0, bw, this.H);           // left
-    g.fillRect(this.W - bw, 0, bw, this.H); // right
-
-    // Wall detail lines
-    g.lineStyle(2, 0x8a7aaa, 0.6);
-    g.strokeRect(bw, bw, this.W - bw * 2, this.H - bw * 2);
-
-    // Team zone subtle tint
-    g.fillStyle(TEAM_COLORS[0], 0.06).fillRect(bw, bw, this.W / 2 - bw, this.H - bw * 2);
-    g.fillStyle(TEAM_COLORS[1], 0.06).fillRect(this.W / 2, bw, this.W / 2 - bw, this.H - bw * 2);
-
-    // Obstacles — dungeon stone blocks
-    const og = this.obstGfx;
-    og.clear();
-    for (const o of this.obstacles) {
-      const ox = o.x * this.scaleX, oy = o.y * this.scaleY;
-      const ow = o.w * this.scaleX, oh = o.h * this.scaleY;
-      // Stone block shadow
-      og.fillStyle(0x1a1020, 0.5).fillRect(ox - ow / 2 + 4, oy - oh / 2 + 4, ow, oh);
-      // Stone fill
-      og.fillStyle(0x6a5a8a).fillRect(ox - ow / 2, oy - oh / 2, ow, oh);
-      // Stone highlight top
-      og.fillStyle(0x8a7aaa, 0.5).fillRect(ox - ow / 2, oy - oh / 2, ow, 6);
-      og.fillStyle(0x8a7aaa, 0.3).fillRect(ox - ow / 2, oy - oh / 2, 6, oh);
-      // Stone outline
-      og.lineStyle(2, 0x4a3a6a, 1).strokeRect(ox - ow / 2, oy - oh / 2, ow, oh);
-    }
-  }
-
-  // ── Render ─────────────────────────────────────────────────────────────────
-  renderState() {
-    const pg = this.playerGfx, hg = this.hookGfx;
-    pg.clear(); hg.clear();
-
-    // Hooks (chains)
-    for (const hook of this.serverHooks) {
-      const owner = this.serverPlayers.find(p => p.id === hook.ownerId);
-      if (!owner) continue;
-      const color = TEAM_COLORS[owner.team];
-
-      const ox = owner.x * this.scaleX, oy = owner.y * this.scaleY;
-      const hx = hook.x  * this.scaleX, hy = hook.y  * this.scaleY;
-
-      // Chain segments
-      const segs = 8;
-      hg.lineStyle(3, color, 0.75);
-      for (let i = 0; i < segs; i++) {
-        const t0 = i / segs, t1 = (i + 1) / segs;
-        const x0 = ox + (hx - ox) * t0, y0 = oy + (hy - oy) * t0;
-        const x1 = ox + (hx - ox) * t1, y1 = oy + (hy - oy) * t1;
-        const sag = Math.sin(Math.PI * (t0 + t1) / 2) * 4;
-        const nx = -(hy - oy), ny = hx - ox;
-        const nl = Math.sqrt(nx * nx + ny * ny) || 1;
-        hg.beginPath();
-        hg.moveTo(x0 + (nx / nl) * sag * 0.5, y0 + (ny / nl) * sag * 0.5);
-        hg.lineTo(x1 + (nx / nl) * sag * 0.5, y1 + (ny / nl) * sag * 0.5);
-        hg.strokePath();
-      }
-
-      // Hook tip
-      hg.fillStyle(0xffffff, 1).fillCircle(hx, hy, 7);
-      hg.fillStyle(color, 1).fillCircle(hx, hy, 4);
-    }
-
-    // Players
-    for (const p of this.serverPlayers) {
-      const px = p.x * this.scaleX, py = p.y * this.scaleY;
-      const r = 22 * Math.min(this.scaleX, this.scaleY);
-      const color = TEAM_COLORS[p.team];
-      const isMe = p.id === this.myId;
-      const flash = p.hitFlash > 0;
-
-      // Assign slot index for char sprite selection
-      if (!this.playerSlots.has(p.id)) {
-        this.playerSlots.set(p.id, this.playerSlots.size);
-      }
-      const slotIdx = this.playerSlots.get(p.id);
-      const charKey = `char-${CHAR_KEYS[slotIdx % CHAR_KEYS.length]}`;
-
-      // Shadow
-      pg.fillStyle(0x000000, 0.4).fillEllipse(px + 3, py + 6, r * 1.9, r * 0.75);
-
-      if (!p.alive) {
-        // Dead — dim circle
-        pg.fillStyle(0x000000, 0.6).fillCircle(px, py, r);
-        pg.lineStyle(2, color, 0.3).strokeCircle(px, py, r);
-        this.updateCharSprite(p.id, px, py, r, charKey, 0.25, color);
-        this.setNameText(p.id, px, py + r + 5, `💀 ${p.name}`, '#555555');
-        continue;
-      }
-
-      // Coloured ring behind sprite (team color)
-      pg.fillStyle(color, flash ? 1 : 0.9).fillCircle(px, py, r + 3);
-      if (isMe) {
-        pg.lineStyle(3, 0xffffff, 0.95).strokeCircle(px, py, r + 6);
-      }
-
-      // Character face sprite with circle mask
-      this.updateCharSprite(p.id, px, py, r, charKey, flash ? 0.5 : 1, color);
-
-      // HP pips
-      for (let i = 0; i < 2; i++) {
-        const pipX = px + (i === 0 ? -(r * 0.4) : (r * 0.4));
-        const pipY = py - r - 10;
-        const filled = i < p.hp;
-        pg.fillStyle(filled ? 0xff3333 : 0x333333, 1).fillCircle(pipX, pipY, 5);
-        pg.lineStyle(1, 0x000000, 0.6).strokeCircle(pipX, pipY, 5);
-      }
-
-      // Hook cooldown dot
-      const hookReady = p.hookCooldown <= 0;
-      pg.fillStyle(hookReady ? 0x2ecc71 : 0xe74c3c, 0.9)
-        .fillCircle(px, py - r - 20, 4);
-
-      // Name tag
-      this.setNameText(p.id, px, py + r + 6,
-        (isMe ? '▶ ' : '') + p.name,
-        isMe ? '#ffffff' : '#dddddd');
-    }
-  }
-
-  updateCharSprite(id, px, py, r, charKey, alpha, tintColor) {
-    if (!this.charSprites.has(id)) {
-      // Create masked sprite
-      const img = this.add.image(px, py, charKey)
-        .setDepth(3.5)
-        .setDisplaySize(r * 2, r * 2);
-
-      const maskShape = this.make.graphics({ x: px, y: py, add: false });
-      maskShape.fillStyle(0xffffff).fillCircle(0, 0, r);
-      const mask = maskShape.createGeometryMask();
-      img.setMask(mask);
-
-      this.charSprites.set(id, { img, maskShape });
-    }
-
-    const { img, maskShape } = this.charSprites.get(id);
-    img.setPosition(px, py).setDisplaySize(r * 2, r * 2).setAlpha(alpha);
-    maskShape.setPosition(px, py);
-    maskShape.clear().fillStyle(0xffffff).fillCircle(0, 0, r);
-  }
-
-  setNameText(id, x, y, text, color) {
-    if (!this.nameTexts.has(id)) {
-      const t = this.add.text(x, y, text, {
-        fontSize: '12px', color, stroke: '#000', strokeThickness: 2,
-      }).setOrigin(0.5, 0).setDepth(5);
-      this.nameTexts.set(id, t);
-    } else {
-      const t = this.nameTexts.get(id);
-      t.setPosition(x, y).setText(text).setColor(color);
-    }
-  }
-
-  // ── HUD ────────────────────────────────────────────────────────────────────
-  renderHUD() {
-    const me = this.serverPlayers.find(p => p.id === this.myId);
-    if (!me) return;
-
-    const hpStr = '❤'.repeat(me.hp) + '🖤'.repeat(2 - me.hp);
-    this.hudText.setText(hpStr);
-
-    const g = this.uiGfx;
-    g.clear();
-
-    // ── Hook cooldown arc (bottom-right zone) ──
-    const cx = this.W * 0.75, cy = this.H - 48, rad = 30;
-    const ready = me.hookCooldown <= 0;
-    const frac = ready ? 1 : 1 - me.hookCooldown / 6000;
-
-    // Background circle
-    g.lineStyle(6, 0x222233, 0.9).strokeCircle(cx, cy, rad);
-
-    // Progress arc
-    if (frac > 0) {
-      const color = ready ? 0x2ecc71 : 0xe74c3c;
-      g.lineStyle(6, color, 1);
-      g.beginPath();
-      const start = -Math.PI / 2;
-      const end = start + frac * Math.PI * 2;
-      g.arc(cx, cy, rad, start, end, false);
-      g.strokePath();
-    }
-
-    // Hook icon in center
-    g.lineStyle(3, ready ? 0x2ecc71 : 0x888888, 1);
-    g.beginPath();
-    g.moveTo(cx - 8, cy - 8);
-    g.lineTo(cx + 4, cy - 8);
-    g.arc(cx + 4, cy - 2, 6, -Math.PI / 2, Math.PI / 2, false);
-    g.lineTo(cx - 2, cy + 4);
-    g.strokePath();
-
-    // Cooldown seconds text
-    if (!ready) {
-      const cdSec = (me.hookCooldown / 1000).toFixed(1);
-      if (!this.cdText) {
-        this.cdText = this.add.text(cx, cy + rad + 12, '', {
-          fontSize: '13px', color: '#e74c3c', stroke: '#000', strokeThickness: 2,
-        }).setOrigin(0.5, 0).setDepth(15);
-      }
-      this.cdText.setText(cdSec + 'с').setVisible(true);
-    } else {
-      if (this.cdText) this.cdText.setVisible(false);
-    }
-
-    // ── Zone divider hint ──
-    g.lineStyle(1, 0x444466, 0.25)
-      .beginPath()
-      .moveTo(this.W / 2, this.H - 100)
-      .lineTo(this.W / 2, this.H)
-      .strokePath();
-  }
-
-  // ── Input ──────────────────────────────────────────────────────────────────
-  onDown(ptr) {
-    if (!this.started) return;
-
-    if (!this.joy.active && ptr.x < this.W / 2) {
-      this.joy = { active: true, pid: ptr.id, baseX: ptr.x, baseY: ptr.y, nx: 0, ny: 0 };
-      this.joyBase.setPosition(ptr.x, ptr.y).setVisible(true);
-      this.joyThumb.setPosition(ptr.x, ptr.y).setVisible(true);
-    } else if (!this.hookPtr.active && ptr.x >= this.W / 2) {
-      this.hookPtr = { active: true, pid: ptr.id };
-      this.fireHook(ptr.x, ptr.y);
-      this.hookDot.setPosition(ptr.x, ptr.y).setVisible(true);
-    }
-  }
-
-  onMove(ptr) {
-    if (this.joy.active && ptr.id === this.joy.pid) {
-      const dx = ptr.x - this.joy.baseX;
-      const dy = ptr.y - this.joy.baseY;
-      const len = Math.sqrt(dx * dx + dy * dy);
-      const maxR = 55;
-
-      this.joy.nx = len > 5 ? dx / len : 0;
-      this.joy.ny = len > 5 ? dy / len : 0;
-
-      const tx = len > maxR ? this.joy.baseX + (dx / len) * maxR : ptr.x;
-      const ty = len > maxR ? this.joy.baseY + (dy / len) * maxR : ptr.y;
-      this.joyThumb.setPosition(tx, ty);
-
-      this.socket.emit('input', { dx: this.joy.nx, dy: this.joy.ny });
-    }
-
-    if (this.hookPtr.active && ptr.id === this.hookPtr.pid) {
-      this.hookDot.setPosition(ptr.x, ptr.y);
-    }
-  }
-
-  onUp(ptr) {
-    if (this.joy.active && ptr.id === this.joy.pid) {
-      this.joy = { active: false, pid: -1, baseX: 0, baseY: 0, nx: 0, ny: 0 };
-      this.joyBase.setVisible(false);
-      this.joyThumb.setVisible(false);
-      this.socket.emit('input', { dx: 0, dy: 0 });
-    }
-    if (this.hookPtr.active && ptr.id === this.hookPtr.pid) {
-      this.hookPtr = { active: false, pid: -1 };
-      this.hookDot.setVisible(false);
-    }
-  }
-
-  fireHook(screenX, screenY) {
-    const gameX = screenX / this.scaleX;
-    const gameY = screenY / this.scaleY;
-    this.socket.emit('input', { hookX: gameX, hookY: gameY });
-  }
-
-  // ── Overlay helpers ────────────────────────────────────────────────────────
-  showGameOver(winner) {
-    const W = this.W, H = this.H;
-    const won = winner === this.myTeam;
-    const isDraw = winner === -1;
-
-    const overlay = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.7).setDepth(20);
-
-    const msg = isDraw ? 'НИЧЬЯ' : won ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ';
-    const col = isDraw ? '#f39c12' : won ? '#f1c40f' : '#e74c3c';
-
-    this.add.text(W / 2, H / 2 - 30, msg, {
-      fontSize: '56px', fontFamily: 'Arial Black', color: col,
-      stroke: '#000', strokeThickness: 8,
-    }).setOrigin(0.5).setDepth(21);
-
-    if (!isDraw) {
-      this.add.text(W / 2, H / 2 + 40, `${TEAM_NAMES[winner]} побеждают`, {
-        fontSize: '22px', color: '#fff',
-      }).setOrigin(0.5).setDepth(21);
-    }
-
-    this.time.delayedCall(4000, () => {
-      this.socket?.disconnect();
-      this.scene.start('MenuScene');
-    });
-  }
-
-  showMessage(msg) {
-    this.add.text(this.W / 2, this.H / 2, msg, {
-      fontSize: '24px', color: '#fff', stroke: '#000', strokeThickness: 4,
-    }).setOrigin(0.5).setDepth(20);
-  }
-
-  // ── Update loop ────────────────────────────────────────────────────────────
-  update() {
-    if (!this.started) return;
-    this.renderState();
-    this.renderHUD();
-  }
+// Preload first few models
+['a', 'b', 'c', 'd'].forEach(loadChar);
+
+// ── Map ───────────────────────────────────────────────────────────────────────
+let mapGroup = null;
+
+function buildMap(obstacles) {
+  if (mapGroup) { scene.remove(mapGroup); }
+  mapGroup = new THREE.Group();
+
+  const mw = MAP_W * S, mh = MAP_H * S;
+
+  // Floor — warm stone
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(mw, mh, 20, 15),
+    new THREE.MeshLambertMaterial({ color: 0x7a4520 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(mw / 2, 0, mh / 2);
+  floor.receiveShadow = true;
+  mapGroup.add(floor);
+
+  // Floor tile pattern (subtle grid)
+  const tileSize = 0.5;
+  const tileMat = new THREE.MeshBasicMaterial({ color: 0x5a3010, wireframe: true, transparent: true, opacity: 0.15 });
+  const tileGrid = new THREE.Mesh(new THREE.PlaneGeometry(mw, mh, mw / tileSize, mh / tileSize), tileMat);
+  tileGrid.rotation.x = -Math.PI / 2;
+  tileGrid.position.set(mw / 2, 0.003, mh / 2);
+  mapGroup.add(tileGrid);
+
+  // Perimeter walls
+  const wallMat  = new THREE.MeshLambertMaterial({ color: 0x5a4878 });
+  const wallCapM = new THREE.MeshLambertMaterial({ color: 0x8a7aaa });
+  const WH = 1.1, WT = 0.35;
+
+  const wallDefs = [
+    [mw / 2, WH / 2, -WT / 2,       mw + WT * 2, WH, WT],
+    [mw / 2, WH / 2, mh + WT / 2,   mw + WT * 2, WH, WT],
+    [-WT / 2, WH / 2, mh / 2,        WT, WH, mh],
+    [mw + WT / 2, WH / 2, mh / 2,    WT, WH, mh],
+  ];
+  wallDefs.forEach(([x, y, z, w, h, d]) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mapGroup.add(mesh);
+    // Cap
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(w, 0.06, d), wallCapM);
+    cap.position.set(x, h + 0.03, z);
+    mapGroup.add(cap);
+  });
+
+  // Obstacles — dungeon pillars/blocks
+  const obsMat  = new THREE.MeshLambertMaterial({ color: 0x625278 });
+  const obsCapM = new THREE.MeshLambertMaterial({ color: 0x9a88bc });
+  obstacles.forEach(o => {
+    const ox = o.x * S, oz = o.y * S;
+    const ow = o.w * S, oh = o.h * S;
+    const BH = 0.85;
+    // Shadow decal
+    const shadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(ow + 0.15, oh + 0.15),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 })
+    );
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.set(ox, 0.002, oz);
+    mapGroup.add(shadow);
+    // Block
+    const block = new THREE.Mesh(new THREE.BoxGeometry(ow, BH, oh), obsMat);
+    block.position.set(ox, BH / 2, oz);
+    block.castShadow = true;
+    block.receiveShadow = true;
+    mapGroup.add(block);
+    // Top cap
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(ow, 0.07, oh), obsCapM);
+    cap.position.set(ox, BH + 0.035, oz);
+    mapGroup.add(cap);
+  });
+
+  scene.add(mapGroup);
 }
 
-// ── Utility ──────────────────────────────────────────────────────────────────
-function drawGrid(scene, W, H, step, color, alpha, gfx) {
-  const g = gfx || scene.add.graphics();
-  g.lineStyle(1, color, alpha);
-  for (let x = 0; x <= W; x += step) {
-    g.beginPath().moveTo(x, 0).lineTo(x, H).strokePath();
-  }
-  for (let y = 0; y <= H; y += step) {
-    g.beginPath().moveTo(0, y).lineTo(W, y).strokePath();
-  }
+// ── Character meshes ──────────────────────────────────────────────────────────
+const charEntries  = new Map(); // id → { group, ring }
+const playerSlots  = new Map(); // id → slotIndex
+
+function makeFallbackBody(teamColor) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.22, 0.45, 4, 8),
+    new THREE.MeshLambertMaterial({ color: teamColor })
+  );
+  body.position.y = 0.5;
+  body.castShadow = true;
+  g.add(body);
+  // Head
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.18, 8, 8),
+    new THREE.MeshLambertMaterial({ color: teamColor })
+  );
+  head.position.y = 1.0;
+  head.castShadow = true;
+  g.add(head);
   return g;
 }
 
-// ── Phaser config ─────────────────────────────────────────────────────────────
-new Phaser.Game({
-  type: Phaser.AUTO,
-  width:  window.innerWidth,
-  height: window.innerHeight,
-  backgroundColor: '#0d0d1a',
-  scene: [MenuScene, GameScene],
-  scale: {
-    mode: Phaser.Scale.RESIZE,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-  },
-  input: { activePointers: 4 },
-  parent: document.body,
-  render: { antialias: true },
+async function getOrCreateChar(id, team, name) {
+  if (charEntries.has(id)) return charEntries.get(id);
+
+  if (!playerSlots.has(id)) playerSlots.set(id, playerSlots.size);
+  const slot   = playerSlots.get(id);
+  const letter = CHAR_LETTERS[slot % CHAR_LETTERS.length];
+  const color  = TEAM_COLORS[team];
+
+  const group = new THREE.Group();
+
+  // Team color ground ring
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.28, 0.40, 24),
+    new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.005;
+  group.add(ring);
+
+  // Load GLB character
+  const baseModel = await loadChar(letter);
+  if (baseModel) {
+    const model = baseModel.clone();
+    // Scale to fit ~1 unit tall, rotate to face camera direction
+    model.scale.setScalar(0.55);
+    model.rotation.y = Math.PI * 1.25; // face toward camera angle
+    model.traverse(c => {
+      if (c.isMesh) {
+        c.castShadow = true;
+        c.receiveShadow = true;
+        c.material = c.material.clone();
+        c.material.emissive = new THREE.Color(color);
+        c.material.emissiveIntensity = 0.12;
+      }
+    });
+    group.add(model);
+  } else {
+    const fb = makeFallbackBody(color);
+    group.add(fb);
+  }
+
+  scene.add(group);
+  const entry = { group, ring, team, alive: true };
+  charEntries.set(id, entry);
+  return entry;
+}
+
+function removeChar(id) {
+  const e = charEntries.get(id);
+  if (e) { scene.remove(e.group); charEntries.delete(id); }
+}
+
+// ── Hook lines ────────────────────────────────────────────────────────────────
+const hookLines = new Map(); // ownerId → { line, tip }
+
+function upsertHook(hook, ownerPlayer) {
+  const color = TEAM_COLORS[ownerPlayer.team];
+  if (!hookLines.has(hook.ownerId)) {
+    const pts = [new THREE.Vector3(), new THREE.Vector3()];
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color, linewidth: 2 }));
+    const tip  = new THREE.Mesh(
+      new THREE.SphereGeometry(0.07, 8, 8),
+      new THREE.MeshLambertMaterial({ color: 0xdddddd, emissive: 0xffffff, emissiveIntensity: 0.3 })
+    );
+    scene.add(line); scene.add(tip);
+    hookLines.set(hook.ownerId, { line, tip });
+  }
+  const { line, tip } = hookLines.get(hook.ownerId);
+  const op = sw(ownerPlayer.x, ownerPlayer.y, 0.55);
+  const hp = sw(hook.x, hook.y, 0.55);
+  line.geometry.setFromPoints([op, hp]);
+  line.geometry.attributes.position.needsUpdate = true;
+  tip.position.copy(hp);
+}
+
+function removeHookLine(ownerId) {
+  const h = hookLines.get(ownerId);
+  if (!h) return;
+  scene.remove(h.line); scene.remove(h.tip);
+  h.line.geometry.dispose();
+  hookLines.delete(ownerId);
+}
+
+// server coords → world Vector3 (Y is up, Z is server Y axis)
+function sw(sx, sy, worldY = 0) {
+  return new THREE.Vector3(sx * S, worldY, sy * S);
+}
+
+// ── Game state ────────────────────────────────────────────────────────────────
+let socket = null, myId = null, myTeam = null, mode = 'pvp';
+let gameState  = 'menu'; // menu | searching | playing | gameover
+let sPlayers   = [];     // latest server state
+let sHooks     = [];
+let mapBuilt   = false;
+
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const s = document.getElementById(`screen-${name}`);
+  if (s) s.classList.add('active');
+
+  const playing = (name === 'game');
+  document.getElementById('overlay').style.pointerEvents = playing ? 'none' : 'auto';
+  document.getElementById('hud').style.display        = playing ? 'block' : 'none';
+  document.getElementById('hook-canvas').style.display = playing ? 'block' : 'none';
+  document.getElementById('zone-hint').style.display   = playing ? 'block' : 'none';
+  document.getElementById('joy-canvas').style.display  = playing ? 'block' : 'none';
+}
+
+// ── Socket ────────────────────────────────────────────────────────────────────
+function connectSocket() {
+  if (socket) { socket.disconnect(); }
+  socket = io(SERVER_URL, { transports: ['websocket'] });
+
+  socket.on('connect', () => {
+    myId = socket.id;
+    if (mode === 'bots') {
+      document.getElementById('search-text').textContent = 'Подготовка ботов...';
+      socket.emit('play_vs_bots', { user: tgUser });
+    } else {
+      socket.emit('join_queue', { user: tgUser });
+    }
+  });
+
+  socket.on('queue_status', d => {
+    document.getElementById('search-text').textContent = `Поиск игроков...\n${d.inQueue} / 4`;
+  });
+
+  socket.on('game_start', d => {
+    myId = socket.id;
+    gameState = 'playing';
+    sPlayers  = d.players;
+    sHooks    = [];
+
+    const me = d.players.find(p => p.id === myId);
+    if (me) {
+      myTeam = me.team;
+      const el = document.getElementById('hud-team');
+      el.textContent = `Команда: ${TEAM_NAMES[me.team]}`;
+      el.style.color = TEAM_HEX[me.team];
+    }
+
+    if (!mapBuilt) { buildMap(d.obstacles); mapBuilt = true; }
+    showScreen('game');
+  });
+
+  socket.on('state', d => {
+    if (gameState !== 'playing') return;
+    sPlayers = d.players;
+    // Remove vanished hooks
+    const live = new Set(d.hooks.map(h => h.ownerId));
+    for (const id of hookLines.keys()) if (!live.has(id)) removeHookLine(id);
+    sHooks = d.hooks;
+  });
+
+  socket.on('player_left', d => {
+    removeChar(d.id);
+    sPlayers = sPlayers.filter(p => p.id !== d.id);
+  });
+
+  socket.on('game_over', d => {
+    gameState = 'gameover';
+    const won = d.winner === myTeam, draw = d.winner === -1;
+    const title = document.getElementById('gameover-title');
+    const sub   = document.getElementById('gameover-sub');
+    title.textContent = draw ? 'НИЧЬЯ' : won ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ';
+    title.style.color = draw ? '#f39c12' : won ? '#f1c40f' : '#e74c3c';
+    sub.textContent   = draw ? '' : `${TEAM_NAMES[d.winner]} побеждают`;
+    showScreen('gameover');
+    setTimeout(() => { cleanupGame(); showScreen('menu'); }, 4000);
+  });
+
+  socket.on('disconnect', () => {
+    if (gameState === 'playing') { cleanupGame(); showScreen('menu'); }
+  });
+}
+
+function cleanupGame() {
+  gameState = 'menu';
+  charEntries.forEach((_, id) => removeChar(id));
+  playerSlots.clear();
+  hookLines.forEach((_, id) => removeHookLine(id));
+  if (mapGroup) { scene.remove(mapGroup); mapGroup = null; }
+  mapBuilt  = false;
+  sPlayers  = [];
+  sHooks    = [];
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+const joy     = { active: false, pid: -1, baseX: 0, baseY: 0, nx: 0, ny: 0 };
+const hookPtr = { active: false, pid: -1 };
+const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const raycaster  = new THREE.Raycaster();
+
+function screenToServerCoords(sx, sy) {
+  const ndc = new THREE.Vector2(
+    (sx / window.innerWidth)  *  2 - 1,
+    (sy / window.innerHeight) * -2 + 1
+  );
+  raycaster.setFromCamera(ndc, camera);
+  const pt = new THREE.Vector3();
+  raycaster.ray.intersectPlane(floorPlane, pt);
+  return { x: pt.x / S, y: pt.z / S };
+}
+
+function fireHook(screenX, screenY) {
+  const gc = screenToServerCoords(screenX, screenY);
+  socket?.emit('input', { hookX: gc.x, hookY: gc.y });
+}
+
+canvas.addEventListener('touchstart', e => {
+  if (gameState !== 'playing') return;
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (!joy.active && t.clientX < window.innerWidth / 2) {
+      Object.assign(joy, { active: true, pid: t.identifier, baseX: t.clientX, baseY: t.clientY, nx: 0, ny: 0 });
+    } else if (!hookPtr.active && t.clientX >= window.innerWidth / 2) {
+      hookPtr.active = true; hookPtr.pid = t.identifier;
+      fireHook(t.clientX, t.clientY);
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  if (gameState !== 'playing') return;
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (joy.active && t.identifier === joy.pid) {
+      const dx = t.clientX - joy.baseX, dy = t.clientY - joy.baseY;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      joy.nx = len > 8 ? dx / len : 0;
+      joy.ny = len > 8 ? dy / len : 0;
+      socket?.emit('input', { dx: joy.nx, dy: joy.ny });
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  if (gameState !== 'playing') return;
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (joy.active && t.identifier === joy.pid) {
+      Object.assign(joy, { active: false, pid: -1, nx: 0, ny: 0 });
+      socket?.emit('input', { dx: 0, dy: 0 });
+    }
+    if (hookPtr.active && t.identifier === hookPtr.pid) {
+      hookPtr.active = false; hookPtr.pid = -1;
+    }
+  }
+}, { passive: false });
+
+// Desktop: mouse click for hook, WASD for movement
+canvas.addEventListener('click', e => {
+  if (gameState !== 'playing') return;
+  if (e.clientX >= window.innerWidth / 2) fireHook(e.clientX, e.clientY);
 });
+
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (gameState !== 'playing') return;
+  const dx = (keys['d'] || keys['ArrowRight'] ? 1 : 0) - (keys['a'] || keys['ArrowLeft'] ? 1 : 0);
+  const dy = (keys['s'] || keys['ArrowDown']  ? 1 : 0) - (keys['w'] || keys['ArrowUp']   ? 1 : 0);
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  socket?.emit('input', { dx: dx ? dx / len : 0, dy: dy ? dy / len : 0 });
+});
+window.addEventListener('keyup', e => {
+  keys[e.key] = false;
+  if (gameState !== 'playing') return;
+  const dx = (keys['d'] || keys['ArrowRight'] ? 1 : 0) - (keys['a'] || keys['ArrowLeft'] ? 1 : 0);
+  const dy = (keys['s'] || keys['ArrowDown']  ? 1 : 0) - (keys['w'] || keys['ArrowUp']   ? 1 : 0);
+  socket?.emit('input', { dx, dy });
+});
+
+// ── Joystick canvas overlay ───────────────────────────────────────────────────
+const joyCanvas = document.getElementById('joy-canvas');
+const joyCtx    = joyCanvas.getContext('2d');
+
+function resizeJoyCanvas() {
+  joyCanvas.width  = window.innerWidth;
+  joyCanvas.height = window.innerHeight;
+}
+resizeJoyCanvas();
+
+function drawJoystick() {
+  joyCtx.clearRect(0, 0, joyCanvas.width, joyCanvas.height);
+  if (gameState !== 'playing' || !joy.active) return;
+
+  const maxR = 55;
+  const dx = joy.nx * maxR, dy = joy.ny * maxR;
+  const tx = joy.baseX + dx, ty = joy.baseY + dy;
+
+  // Base
+  joyCtx.beginPath();
+  joyCtx.arc(joy.baseX, joy.baseY, maxR, 0, Math.PI * 2);
+  joyCtx.strokeStyle = 'rgba(255,255,255,0.2)';
+  joyCtx.lineWidth   = 2;
+  joyCtx.stroke();
+  joyCtx.fillStyle   = 'rgba(255,255,255,0.06)';
+  joyCtx.fill();
+
+  // Thumb
+  joyCtx.beginPath();
+  joyCtx.arc(tx, ty, 22, 0, Math.PI * 2);
+  joyCtx.fillStyle = 'rgba(255,255,255,0.35)';
+  joyCtx.fill();
+}
+
+// ── HUD: hook cooldown arc ────────────────────────────────────────────────────
+const hCanvas = document.getElementById('hook-canvas');
+const hCtx    = hCanvas.getContext('2d');
+
+function drawHookHUD(me) {
+  const W = hCanvas.width, H = hCanvas.height;
+  hCtx.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2, r = 28;
+  const ready = me.hookCooldown <= 0;
+  const frac  = ready ? 1 : 1 - me.hookCooldown / 6000;
+
+  hCtx.beginPath();
+  hCtx.arc(cx, cy, r, 0, Math.PI * 2);
+  hCtx.strokeStyle = 'rgba(30,30,50,0.9)';
+  hCtx.lineWidth   = 7;
+  hCtx.stroke();
+
+  if (frac > 0.01) {
+    hCtx.beginPath();
+    hCtx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+    hCtx.strokeStyle = ready ? '#2ecc71' : '#e74c3c';
+    hCtx.lineWidth   = 7;
+    hCtx.stroke();
+  }
+
+  hCtx.textAlign    = 'center';
+  hCtx.textBaseline = 'middle';
+  if (ready) {
+    hCtx.font      = '20px Arial';
+    hCtx.fillStyle = '#2ecc71';
+    hCtx.fillText('⚓', cx, cy);
+  } else {
+    hCtx.font      = 'bold 13px Arial';
+    hCtx.fillStyle = '#e74c3c';
+    hCtx.fillText((me.hookCooldown / 1000).toFixed(1), cx, cy);
+  }
+}
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+
+async function updatePlayers() {
+  const activeIds = new Set(sPlayers.map(p => p.id));
+
+  // Remove departed players
+  for (const id of charEntries.keys()) {
+    if (!activeIds.has(id)) removeChar(id);
+  }
+
+  // Update each player
+  for (const p of sPlayers) {
+    const entry = await getOrCreateChar(p.id, p.team, p.name);
+    const target = sw(p.x, p.y, 0);
+
+    // Smooth lerp to server position
+    entry.group.position.lerp(target, 0.25);
+
+    // Alive / dead state
+    const alpha = p.alive ? 1 : 0.3;
+    entry.group.traverse(c => {
+      if (c.isMesh && c.material) {
+        c.material.transparent = true;
+        c.material.opacity = alpha;
+        if (p.hitFlash > 0 && p.alive) {
+          c.material.emissiveIntensity = 0.9;
+        } else {
+          c.material.emissiveIntensity = p.id === myId ? 0.2 : 0.12;
+        }
+      }
+    });
+    entry.ring.material.opacity = p.alive ? 0.85 : 0.2;
+  }
+}
+
+function updateHooks() {
+  for (const hook of sHooks) {
+    const owner = sPlayers.find(p => p.id === hook.ownerId);
+    if (owner) upsertHook(hook, owner);
+  }
+}
+
+function animateTorches() {
+  const t = Date.now() / 800;
+  torches.forEach((l, i) => {
+    l.intensity = 2.0 + Math.sin(t * (3.1 + i * 0.7)) * 0.5;
+  });
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  clock.getDelta(); // keep clock ticking
+
+  if (gameState === 'playing') {
+    updatePlayers();
+    updateHooks();
+    animateTorches();
+    drawJoystick();
+
+    const me = sPlayers.find(p => p.id === myId);
+    if (me) {
+      document.getElementById('hud-hp').textContent =
+        '❤'.repeat(me.hp) + '🖤'.repeat(2 - me.hp);
+      drawHookHUD(me);
+    }
+  }
+
+  renderer.render(scene, camera);
+}
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  const asp = w / h;
+  camera.left   = -VIEW_SIZE * asp;
+  camera.right  =  VIEW_SIZE * asp;
+  camera.updateProjectionMatrix();
+  resizeJoyCanvas();
+});
+
+// ── Menu buttons ──────────────────────────────────────────────────────────────
+document.getElementById('btn-pvp').addEventListener('click', () => {
+  mode = 'pvp'; showScreen('search'); connectSocket();
+});
+document.getElementById('btn-bots').addEventListener('click', () => {
+  mode = 'bots'; showScreen('search'); connectSocket();
+});
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+showScreen('menu');
+animate();

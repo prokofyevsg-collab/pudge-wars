@@ -11,6 +11,7 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(express.static(path.join(__dirname, 'client')));
+app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
 // --- Constants ---
 const TICK_RATE = 30;

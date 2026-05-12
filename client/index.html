@@ -7,15 +7,95 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Pudge Wars</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background: #0d0d1a; }
-    canvas { display: block; }
+    * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; -webkit-user-select: none; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0d0005; font-family: Arial, sans-serif; }
+    #canvas { display: block; position: absolute; top: 0; left: 0; }
+
+    /* ─ Overlay screens ─ */
+    #overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .screen { display: none; flex-direction: column; align-items: center; gap: 14px; padding: 20px; }
+    .screen.active { display: flex; }
+
+    h1 { font-family: 'Arial Black', sans-serif; font-size: 46px; color: #e74c3c;
+         text-shadow: 0 0 24px rgba(231,76,60,0.7), 2px 2px 0 #000; letter-spacing: 2px; }
+    .subtitle { color: #888; font-size: 15px; }
+    .instructions { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+                    border-radius: 8px; padding: 14px 20px; color: #bbb; font-size: 14px;
+                    line-height: 2; text-align: center; }
+    .btn { font-family: 'Arial Black', sans-serif; font-size: 18px; color: #fff;
+           background: #e74c3c; border: none; padding: 14px 32px; border-radius: 6px;
+           cursor: pointer; width: 220px; }
+    .btn-green { background: #27ae60; }
+    .btn:active { filter: brightness(0.75); }
+
+    /* ─ In-game HUD ─ */
+    #hud { position: absolute; top: 0; left: 0; right: 0; display: none;
+           padding: 10px 14px; pointer-events: none; }
+    #hud-hp   { font-size: 22px; }
+    #hud-team { font-size: 14px; color: #ccc; margin-top: 2px; }
+
+    /* ─ Hook cooldown canvas ─ */
+    #hook-canvas { position: absolute; bottom: 36px; right: 36px;
+                   display: none; pointer-events: none; }
+
+    /* ─ Zone divider hint ─ */
+    #zone-hint { position: absolute; bottom: 12px; left: 0; right: 0;
+                 text-align: center; color: rgba(255,255,255,0.2);
+                 font-size: 11px; pointer-events: none; display: none; }
+
+    /* ─ Joystick overlay canvas ─ */
+    #joy-canvas { position: absolute; inset: 0; pointer-events: none; display: none; }
   </style>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+  <canvas id="canvas"></canvas>
+  <canvas id="joy-canvas"></canvas>
+
+  <div id="overlay">
+    <!-- Menu -->
+    <div id="screen-menu" class="screen active">
+      <h1>PUDGE WARS</h1>
+      <p class="subtitle">2 vs 2 · Изометрическая арена</p>
+      <div class="instructions">
+        🕹 Левый палец — движение<br>
+        🎯 Правый палец — прицел хука<br>
+        💀 2 попадания = противник повержен
+      </div>
+      <button class="btn" id="btn-pvp">НАЙТИ ИГРУ (2v2)</button>
+      <button class="btn btn-green" id="btn-bots">ИГРАТЬ vs БОТЫ</button>
+    </div>
+
+    <!-- Searching -->
+    <div id="screen-search" class="screen">
+      <p id="search-text" style="color:#fff;font-size:22px;text-align:center">Поиск игроков...</p>
+    </div>
+
+    <!-- Game Over -->
+    <div id="screen-gameover" class="screen">
+      <h1 id="gameover-title">ПОБЕДА!</h1>
+      <p id="gameover-sub" style="color:#ccc;font-size:20px"></p>
+    </div>
+  </div>
+
+  <!-- In-game HUD -->
+  <div id="hud">
+    <div id="hud-hp">❤❤</div>
+    <div id="hud-team"></div>
+  </div>
+
+  <canvas id="hook-canvas" width="80" height="80"></canvas>
+  <div id="zone-hint">◀ Движение &nbsp;|&nbsp; Хук ▶</div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script src="game.js"></script>
+  <script type="module" src="game.js"></script>
 </body>
 </html>
