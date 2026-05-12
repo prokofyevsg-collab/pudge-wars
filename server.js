@@ -49,6 +49,10 @@ const OBSTACLES = [
   { x: 1820, y: 1020, w: 90, h: 90 },
 ];
 
+// River water zone — blocks player movement, hooks fly over it freely
+// Width = MAP_W * 0.085 * 2 ≈ 340 server units centered at MAP_W/2
+const WATER_ZONE = { x: MAP_W / 2, y: MAP_H / 2, w: 340, h: MAP_H + 200 };
+
 // --- Helpers ---
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function dist(ax, ay, bx, by) { return Math.sqrt((ax - bx) ** 2 + (ay - by) ** 2); }
@@ -57,6 +61,15 @@ function circleVsRect(cx, cy, r, rx, ry, rw, rh) {
   const nearX = clamp(cx, rx - rw / 2, rx + rw / 2);
   const nearY = clamp(cy, ry - rh / 2, ry + rh / 2);
   return dist(cx, cy, nearX, nearY) < r;
+}
+
+function resolveWater(p, r) {
+  const z = WATER_ZONE;
+  if (!circleVsRect(p.x, p.y, r, z.x, z.y, z.w, z.h)) return;
+  const edgeLeft  = z.x - z.w / 2;
+  const edgeRight = z.x + z.w / 2;
+  if (Math.abs(p.x - edgeLeft) < Math.abs(p.x - edgeRight)) p.x = edgeLeft - r;
+  else p.x = edgeRight + r;
 }
 
 function resolveObstacleCircle(p, r) {
@@ -165,6 +178,7 @@ class GameRoom {
           startY: p.y,
           returning: false,
           caughtId: null,
+          heartCaught: false,
         });
       }
     }
@@ -184,6 +198,7 @@ class GameRoom {
       p.x = clamp(p.x, PLAYER_RADIUS, MAP_W - PLAYER_RADIUS);
       p.y = clamp(p.y, PLAYER_RADIUS, MAP_H - PLAYER_RADIUS);
       resolveObstacleCircle(p, PLAYER_RADIUS);
+      if (!p.isBot) resolveWater(p, PLAYER_RADIUS);
     }
 
     // Update hooks
@@ -210,6 +225,11 @@ class GameRoom {
           if (hook.caughtId) {
             const caught = this.players.get(hook.caughtId);
             if (caught) caught.caughtByHook = false;
+          }
+          if (hook.heartCaught) {
+            owner.hp = Math.min(owner.hp + 1, 3);
+            this.pendingPickups.push({ playerName: owner.name, playerTeam: owner.team });
+            this.heartTimer = 20;
           }
           this.hooks.delete(ownerId);
           continue;
@@ -270,6 +290,15 @@ class GameRoom {
             }
             hook.returning = true;
             break;
+          }
+        }
+
+        // Check heart hit — hook can snag the heart and drag it back
+        if (!hook.returning && this.heart) {
+          if (dist(hook.x, hook.y, this.heart.x, this.heart.y) < HOOK_HIT_RADIUS + 30) {
+            hook.heartCaught = true;
+            hook.returning = true;
+            this.heart = null;
           }
         }
       }
@@ -338,7 +367,11 @@ class GameRoom {
       })),
       kills,
       pickups,
-      heart: this.heart ? { x: this.heart.x, y: this.heart.y } : null,
+      heart: (() => {
+        if (this.heart) return { x: this.heart.x, y: this.heart.y };
+        for (const [, h] of this.hooks) if (h.heartCaught) return { x: h.x, y: h.y };
+        return null;
+      })(),
     };
   }
 }
@@ -459,7 +492,7 @@ function tickBots(room, dt) {
         vx: (nx / nl) * HOOK_SPEED,
         vy: (ny / nl) * HOOK_SPEED,
         startX: bot.x, startY: bot.y,
-        returning: false, caughtId: null,
+        returning: false, caughtId: null, heartCaught: false,
       });
       // Reset reaction timer after hooking — bot pauses again
       bot.reactionTimer = 1.5 + Math.random() * 1.5;
@@ -547,16 +580,14 @@ io.on('connection', (socket) => {
       p.team = b.team;
     });
 
-    // Fix spawns after manual team assignment
-    const spawns = [
-      { x: 280, y: 280 },
-      { x: MAP_W - 280, y: MAP_H - 280 },
-      { x: 280, y: MAP_H - 280 },
-      { x: MAP_W - 280, y: 280 },
-    ];
-    let si = 0;
+    // Assign spawns by team so same-team players are always on the same bank
+    const teamSpawns = {
+      0: [{ x: 280, y: 280 }, { x: 280, y: MAP_H - 280 }],
+      1: [{ x: MAP_W - 280, y: MAP_H - 280 }, { x: MAP_W - 280, y: 280 }],
+    };
+    const teamIdx = { 0: 0, 1: 0 };
     for (const p of room.players.values()) {
-      const sp = spawns[si++];
+      const sp = teamSpawns[p.team][teamIdx[p.team]++];
       p.x = sp.x; p.y = sp.y;
     }
 
