@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { SkeletonUtils } from 'three/addons/utils/SkeletonUtils.js';
 
 // ── Constants (keep in sync with server) ────────────────────────────────────
 const SERVER_URL   = window.location.origin;
@@ -97,25 +98,19 @@ function addTorch(x, z) {
 
 // ── GLB loader ────────────────────────────────────────────────────────────────
 const gltfLoader = new GLTFLoader();
-const modelCache = new Map();
 
-function loadChar(letter) {
-  if (modelCache.has(letter)) return Promise.resolve(modelCache.get(letter));
-  return new Promise(resolve => {
-    gltfLoader.load(
-      `assets/chars/Models/GLB%20format/character-${letter}.glb`,
-      gltf => {
-        const m = gltf.scene;
-        m.traverse(c => { if (c.isMesh) c.castShadow = true; });
-        modelCache.set(letter, m);
-        resolve(m);
-      },
-      undefined,
-      () => resolve(null)
-    );
-  });
-}
-['a', 'b', 'c', 'd'].forEach(loadChar);
+// Pudge model template (loaded once, cloned per character)
+let pudgeTemplate = null;
+let pudgeWalkClip = null;
+
+new Promise(resolve => {
+  gltfLoader.load('assets/pudge/pudge-walk.glb', gltf => {
+    pudgeTemplate = gltf.scene;
+    pudgeTemplate.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+    pudgeWalkClip = gltf.animations[0] ?? null;
+    resolve(true);
+  }, undefined, err => { console.warn('pudge-walk.glb failed:', err); resolve(false); });
+});
 
 // ── Map ───────────────────────────────────────────────────────────────────────
 let mapGroup = null;
@@ -335,6 +330,21 @@ function makePudgeBody(teamColor) {
   return g;
 }
 
+function applyTeamColor(model, teamColor) {
+  const tc = new THREE.Color(teamColor);
+  model.traverse(c => {
+    if (!c.isMesh || !c.material) return;
+    const apply = mat => {
+      if ('emissive' in mat) { mat.emissive.copy(tc); mat.emissiveIntensity = 0.18; }
+    };
+    if (Array.isArray(c.material)) {
+      c.material = c.material.map(m => { const mc = m.clone(); apply(mc); return mc; });
+    } else {
+      c.material = c.material.clone(); apply(c.material);
+    }
+  });
+}
+
 function getOrCreateChar(id, team) {
   if (charEntries.has(id)) return charEntries.get(id);
   if (!playerSlots.has(id)) playerSlots.set(id, playerSlots.size);
@@ -352,10 +362,26 @@ function getOrCreateChar(id, team) {
   ring.userData.isRing = true;
   group.add(ring);
 
-  group.add(makePudgeBody(color));
+  let mixer = null, walkAction = null;
+
+  if (pudgeTemplate) {
+    const model = SkeletonUtils.clone(pudgeTemplate);
+    model.scale.setScalar(0.45);
+    applyTeamColor(model, color);
+    group.add(model);
+
+    if (pudgeWalkClip) {
+      mixer = new THREE.AnimationMixer(model);
+      walkAction = mixer.clipAction(pudgeWalkClip);
+      walkAction.setEffectiveTimeScale(1.0);
+      walkAction.play();
+    }
+  } else {
+    group.add(makePudgeBody(color));
+  }
 
   scene.add(group);
-  const entry = { group, ring, team };
+  const entry = { group, ring, team, mixer, walkAction, prevX: null, prevY: null };
   charEntries.set(id, entry);
   return entry;
 }
@@ -804,14 +830,35 @@ function drawJoysticks() {
 }
 
 // ── Render loop ───────────────────────────────────────────────────────────────
-function updatePlayers() {
+function updatePlayers(delta) {
   const activeIds = new Set(sPlayers.map(p => p.id));
   for (const id of charEntries.keys()) if (!activeIds.has(id)) removeChar(id);
 
   for (const p of sPlayers) {
     const entry = getOrCreateChar(p.id, p.team);
-    entry.group.position.lerp(sw(p.x, p.y, 0), 0.28);
+    const targetPos = sw(p.x, p.y, 0);
+    entry.group.position.lerp(targetPos, 0.28);
     entry.ring.material.opacity = p.alive ? 0.90 : 0.2;
+
+    // Detect movement and rotate character to face direction
+    const moving = entry.prevX !== null &&
+      (Math.abs(p.x - entry.prevX) > 0.8 || Math.abs(p.y - entry.prevY) > 0.8);
+    if (moving && p.alive) {
+      const dx = p.x - entry.prevX, dy = p.y - entry.prevY;
+      entry.group.rotation.y = Math.atan2(dx, dy);
+    }
+    entry.prevX = p.x; entry.prevY = p.y;
+
+    // Animation speed: walking when alive+moving, very slow when idle, paused when dead
+    if (entry.walkAction) {
+      if (!p.alive) {
+        entry.walkAction.setEffectiveTimeScale(0);
+      } else {
+        entry.walkAction.setEffectiveTimeScale(moving ? 1.2 : 0.0);
+      }
+    }
+    if (entry.mixer) entry.mixer.update(delta);
+
     entry.group.traverse(c => {
       if (!c.isMesh || !c.material || c.userData.isRing) return;
       if (!p.alive) {
@@ -852,10 +899,16 @@ function updateAimFromJoystick() {
   if (target) showAimIndicators(sw(me.x, me.y, 0.6), sw(target.x, target.y, 0.6));
 }
 
+let _lastTime = performance.now();
+
 function animate() {
   requestAnimationFrame(animate);
+  const now = performance.now();
+  const delta = Math.min((now - _lastTime) / 1000, 0.1); // cap at 100ms
+  _lastTime = now;
+
   if (gameState === 'playing') {
-    updatePlayers(); // sync now — no GLB loading
+    updatePlayers(delta);
     updateHooks();
     animateTorches();
     updateAimFromJoystick();
