@@ -372,7 +372,7 @@ function getOrCreateChar(id, team) {
     const box2 = new THREE.Box3().setFromObject(model);
     model.position.y = -box2.min.y;
 
-    console.log(`pudge loaded: raw size ${size.x.toFixed(2)}x${size.y.toFixed(2)}x${size.z.toFixed(2)}, scale=${s.toFixed(4)}`);
+    console.log(`pudge loaded: ${size.x.toFixed(2)}x${size.y.toFixed(2)}x${size.z.toFixed(2)} scale=${s.toFixed(3)}`);
 
     applyTeamColor(model, color);
     group.remove(fallbackBody);
@@ -384,7 +384,7 @@ function getOrCreateChar(id, team) {
       entry.mixer = mixer;
       entry.walkAction = walkAction;
     }
-  }, undefined, err => console.error('pudge GLB load FAILED:', err));
+  }, undefined, err => console.warn('pudge GLB load error:', err));
 
   return entry;
 }
