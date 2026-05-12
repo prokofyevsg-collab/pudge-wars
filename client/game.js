@@ -469,7 +469,7 @@ function getOrCreateChar(id, team) {
 
   // Кольцо команды на земле
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.72, 1.00, 28),
+    new THREE.RingGeometry(0.50, 0.70, 28),
     new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
   );
   ring.rotation.x = -Math.PI / 2;
@@ -484,7 +484,7 @@ function getOrCreateChar(id, team) {
   if (model) {
     const box  = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
-    const s    = size.y > 0.001 ? 2.20 / size.y : 1.15;
+    const s    = size.y > 0.001 ? 1.47 / size.y : 0.75;
     model.scale.setScalar(s);
     const box2 = new THREE.Box3().setFromObject(model);
     model.position.y = -box2.min.y;
@@ -508,7 +508,7 @@ function getOrCreateChar(id, team) {
     group, ring, team, mixer, actions,
     currentAnim: null,
     prevX: null, prevY: null,
-    prevHasHook: false, hookFiring: false, hookTimer: 0,
+    prevHasHook: false, hookFiring: false, hookTimer: 0, hookAngle: 0,
   };
   charEntries.set(id, entry);
   return entry;
@@ -1039,7 +1039,7 @@ function drawNameLabels() {
   const playing = gameState === 'playing' || gameState === 'countdown';
   if (!playing) return;
   for (const p of sPlayers) {
-    const sp = projectToScreen(p.x * S, 2.6, p.y * S);
+    const sp = projectToScreen(p.x * S, 1.75, p.y * S);
     if (!sp.visible) continue;
 
     const isMe    = p.id === myId;
@@ -1106,8 +1106,8 @@ function updatePlayers(delta) {
     const dy = hasPrev ? p.y - entry.prevY : 0;
     const moveDist = Math.sqrt(dx * dx + dy * dy);
 
-    // Face movement direction
-    if (moveDist > 0.5 && p.alive) {
+    // Face movement direction (suppressed while hook is firing)
+    if (moveDist > 0.5 && p.alive && !entry.hookFiring) {
       entry.group.rotation.y = Math.atan2(dx, dy);
     }
     entry.prevX = p.x; entry.prevY = p.y;
@@ -1129,6 +1129,15 @@ function updatePlayers(delta) {
         entry.prevHasHook = hasHook;
 
         if (entry.hookFiring) {
+          // Face toward hook — update angle while hook is visible and far enough away
+          const h = sHooks.find(hk => hk.ownerId === p.id);
+          if (h) {
+            const hdx = h.x - p.x, hdz = h.y - p.y;
+            if (Math.sqrt(hdx * hdx + hdz * hdz) > 8) {
+              entry.hookAngle = Math.atan2(hdx, hdz);
+            }
+          }
+          entry.group.rotation.y = entry.hookAngle;
           entry.hookTimer -= delta;
           if (entry.hookTimer <= 0) entry.hookFiring = false;
         }
