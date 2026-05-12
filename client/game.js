@@ -32,7 +32,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 // ── Scene ─────────────────────────────────────────────────────────────────────
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x4a7faa);
+scene.background = new THREE.Color(0x3a7020);
 // No fog — isometric view shows the whole scene from far away; fog kills visibility
 
 // ── Camera ────────────────────────────────────────────────────────────────────
@@ -125,43 +125,54 @@ function buildMap(obstacles) {
   mapGroup = new THREE.Group();
   const mw = MAP_W * S, mh = MAP_H * S;
 
-  const mGrass = new THREE.MeshLambertMaterial({ color: 0x4a8530 });
-  const mDirt  = new THREE.MeshLambertMaterial({ color: 0x8a5c28 });
-  const mPath  = new THREE.MeshLambertMaterial({ color: 0xa07040 });
-  const mWater = new THREE.MeshLambertMaterial({ color: 0x2277aa });
-  const mStone = new THREE.MeshLambertMaterial({ color: 0x6d6458 });
-  const mRock  = new THREE.MeshLambertMaterial({ color: 0x857a6a });
-  const mTrunk = new THREE.MeshLambertMaterial({ color: 0x5a3510 });
-  const mLeaf  = new THREE.MeshLambertMaterial({ color: 0x296618 });
+  const mGrass  = new THREE.MeshLambertMaterial({ color: 0x4a8530 });
+  const mGrass2 = new THREE.MeshLambertMaterial({ color: 0x3d7025 });
+  const mDirt   = new THREE.MeshLambertMaterial({ color: 0x8a5c28 });
+  const mPath   = new THREE.MeshLambertMaterial({ color: 0xa07040 });
+  const mWater  = new THREE.MeshLambertMaterial({ color: 0x2277aa });
+  const mStone  = new THREE.MeshLambertMaterial({ color: 0x6d6458 });
+  const mRock   = new THREE.MeshLambertMaterial({ color: 0x857a6a });
+  const mTrunk  = new THREE.MeshLambertMaterial({ color: 0x5a3510 });
+  const mLeaf   = new THREE.MeshLambertMaterial({ color: 0x296618 });
+  const mLeaf2  = new THREE.MeshLambertMaterial({ color: 0x1e5012 });
 
-  function flat(x, z, w, d, mat, y) {
+  function flat(x, z, w, d, mat, y, ro = 0) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
-    m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); m.receiveShadow = true;
+    m.rotation.x = -Math.PI / 2; m.position.set(x, y, z);
+    m.receiveShadow = true; m.renderOrder = ro;
     mapGroup.add(m);
   }
-  function addTree(tx, tz) {
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.11, 0.7, 7), mTrunk);
-    trunk.position.set(tx, 0.35, tz); trunk.castShadow = true; mapGroup.add(trunk);
-    const crown = new THREE.Mesh(new THREE.SphereGeometry(0.38, 8, 6), mLeaf);
-    crown.scale.y = 1.25; crown.position.set(tx, 1.05, tz); crown.castShadow = true; mapGroup.add(crown);
+
+  function addTree(tx, tz, scale = 1.0) {
+    const h = (0.6 + Math.abs(Math.sin(tx * 3.7 + tz * 5.1)) * 0.5) * scale;
+    const r = (0.32 + Math.abs(Math.sin(tx * 7.1 + tz * 2.3)) * 0.18) * scale;
+    const leafMat = Math.sin(tx + tz) > 0 ? mLeaf : mLeaf2;
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.055 * scale, 0.09 * scale, h, 6), mTrunk);
+    trunk.position.set(tx, h / 2, tz); trunk.castShadow = true; mapGroup.add(trunk);
+    const crown = new THREE.Mesh(new THREE.SphereGeometry(r, 7, 5), leafMat);
+    crown.scale.y = 1.3; crown.position.set(tx, h + r * 0.6, tz);
+    crown.castShadow = true; mapGroup.add(crown);
   }
 
-  // Grass base
-  flat(mw / 2, mh / 2, mw, mh, mGrass, 0);
+  // ── Бесконечный газон: огромная плоскость покрывает весь экран за краями карты
+  flat(mw / 2, mh / 2, 200, 200, mGrass2, 0, 0);
+  // Светлый газон внутри карты
+  flat(mw / 2, mh / 2, mw, mh, mGrass, 0.001, 1);
 
-  // Central dirt battle lane
+  // ── Центральный коридор боя (грязь, 54% высоты карты)
   const laneH = mh * 0.54, laneZ = mh / 2;
-  flat(mw / 2, laneZ, mw, laneH, mDirt, 0.002);
-  flat(mw / 2, laneZ - laneH / 2 + 0.25, mw, 0.50, mPath, 0.003);
-  flat(mw / 2, laneZ + laneH / 2 - 0.25, mw, 0.50, mPath, 0.003);
+  flat(mw / 2, laneZ, mw, laneH, mDirt, 0.003, 2);
+  // Светлые полосы по краям коридора
+  flat(mw / 2, laneZ - laneH / 2 + 0.25, mw, 0.50, mPath, 0.004, 3);
+  flat(mw / 2, laneZ + laneH / 2 - 0.25, mw, 0.50, mPath, 0.004, 3);
 
-  // River through lane center
+  // ── Река через центр коридора
   const rH = laneH * 0.30;
-  flat(mw / 2, laneZ, mw, rH, mWater, 0.006);
-  flat(mw / 2, laneZ - rH / 2 - 0.18, mw, 0.36, mStone, 0.004);
-  flat(mw / 2, laneZ + rH / 2 + 0.18, mw, 0.36, mStone, 0.004);
+  flat(mw / 2, laneZ, mw, rH, mWater, 0.006, 4);
+  flat(mw / 2, laneZ - rH / 2 - 0.18, mw, 0.36, mStone, 0.005, 3);
+  flat(mw / 2, laneZ + rH / 2 + 0.18, mw, 0.36, mStone, 0.005, 3);
 
-  // Central fountain
+  // ── Центральный фонтан
   const fMat = new THREE.MeshLambertMaterial({ color: 0x786e60 });
   const fBase = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.75, 0.22, 16), fMat);
   fBase.position.set(mw / 2, 0.11, laneZ); fBase.castShadow = true; mapGroup.add(fBase);
@@ -171,19 +182,42 @@ function buildMap(obstacles) {
   fBowl.rotation.x = Math.PI / 2; fBowl.position.set(mw / 2, 1.00, laneZ); mapGroup.add(fBowl);
   const fWater = new THREE.Mesh(new THREE.CircleGeometry(0.40, 20),
     new THREE.MeshBasicMaterial({ color: 0x55bbff, transparent: true, opacity: 0.78 }));
-  fWater.rotation.x = -Math.PI / 2; fWater.position.set(mw / 2, 1.02, laneZ); mapGroup.add(fWater);
+  fWater.rotation.x = -Math.PI / 2; fWater.position.set(mw / 2, 1.02, laneZ);
+  fWater.renderOrder = 5; mapGroup.add(fWater);
 
-  // Trees in grass zones (above and below lane)
-  const zLo = laneZ - laneH / 2, zHi = laneZ + laneH / 2;
-  for (let i = 0; i < 10; i++) {
-    const tx = 0.5 + (i / 9) * (mw - 1.0);
-    addTree(tx, 0.45);
-    addTree(tx, mh - 0.45);
-    if (i % 2 === 0) addTree(tx, zLo - 0.5);
-    if (i % 2 === 1) addTree(tx, zHi + 0.5);
+  // ── Деревья: несколько рядов, создают эффект "лес → поляна → коридор"
+  const zLo = laneZ - laneH / 2;
+  const zHi = laneZ + laneH / 2;
+
+  // За пределами карты — густой лес (крупные деревья)
+  for (let i = 0; i < 22; i++) {
+    const tx = -3 + (i / 21) * (mw + 6);
+    addTree(tx, -1.2, 1.3);
+    addTree(tx, mh + 1.2, 1.3);
+  }
+  // По краям карты — деревья средние
+  for (let i = 0; i < 16; i++) {
+    const tx = -0.5 + (i / 15) * (mw + 1.0);
+    addTree(tx, -0.3, 1.1);
+    addTree(tx, mh + 0.3, 1.1);
+  }
+  // Внутри карты в траве — мелкие деревья
+  for (let i = 0; i < 12; i++) {
+    const tx = 0.4 + (i / 11) * (mw - 0.8);
+    if (i % 2 === 0) addTree(tx, zLo - 0.6, 0.9);
+    if (i % 2 === 1) addTree(tx, zHi + 0.6, 0.9);
+    // Ещё ряды глубже в траву
+    if (i % 3 === 0) addTree(tx, zLo - 1.3, 1.0);
+    if (i % 3 === 1) addTree(tx, zHi + 1.3, 1.0);
+  }
+  // Деревья по левому и правому краям (вертикальные стены леса)
+  for (let i = 0; i < 8; i++) {
+    const tz = zLo + 0.2 + (i / 7) * laneH * 0.6;
+    addTree(-0.5, tz, 1.0);
+    addTree(mw + 0.5, tz, 1.0);
   }
 
-  // Rock obstacles (from server) — rendered as natural rocks
+  // ── Каменные препятствия (из сервера) — рендерим как природные валуны
   obstacles.forEach(o => {
     const ox = o.x * S, oz = o.y * S, ow = o.w * S, od = o.h * S;
     const rh = 0.5 + Math.abs(Math.sin(ox * 5.3 + oz * 7.1)) * 0.35;
@@ -197,12 +231,13 @@ function buildMap(obstacles) {
       new THREE.CircleGeometry(Math.max(ow, od) * 0.55, 10),
       new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 })
     );
-    shdw.rotation.x = -Math.PI / 2; shdw.position.set(ox, 0.001, oz); mapGroup.add(shdw);
+    shdw.rotation.x = -Math.PI / 2; shdw.position.set(ox, 0.002, oz);
+    shdw.renderOrder = 2; mapGroup.add(shdw);
   });
 
   scene.add(mapGroup);
 
-  // Lights: fountain glow + orange torches at lane corners
+  // ── Освещение: фонтан синий + оранжевые факелы у коридора
   torches.length = 0;
   const fl = new THREE.PointLight(0x44aaff, 3.5, 7);
   fl.position.set(mw / 2, 2.0, laneZ); scene.add(fl); torches.push(fl);
