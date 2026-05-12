@@ -49,12 +49,15 @@ const camera = new THREE.OrthographicCamera(
 
 function positionCamera() {
   const mcx = MAP_W * S / 2, mcz = MAP_H * S / 2;
-  // Top-down view: camera centred on X, slight forward tilt (like a football game)
-  // River runs as a vertical stripe in the centre of the screen
-  camera.position.set(mcx, mcz * 2.5, mcz + mcz * 0.55);
+  // FIFA-style: camera centred on X (no diagonal skew), large Z offset for ~38° tilt.
+  // River stays as a vertical stripe in the middle; map fills the screen edge-to-edge.
+  camera.position.set(mcx, mcz * 2.5, mcz + mcz * 2.0);
   camera.lookAt(mcx, 0, mcz);
-  // VIEW_SIZE fits full map height; aspect ensures width fits too
-  VIEW_SIZE = mcz * 1.20;
+  // Adapt VIEW_SIZE to screen aspect so the map always fills the canvas:
+  //   height constraint: mcz * 0.78  (map half-height projected at ~38° tilt)
+  //   width constraint:  mcx / aspect (map half-width in screen half-space)
+  // Take the larger and add 8% so extended grass covers any edge instead of black.
+  VIEW_SIZE = Math.max(mcz * 0.78, mcx / aspect) * 1.08;
   camera.top    =  VIEW_SIZE;
   camera.bottom = -VIEW_SIZE;
   camera.left   = -VIEW_SIZE * aspect;
