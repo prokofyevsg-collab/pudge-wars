@@ -16,7 +16,13 @@ let VIEW_SIZE = 6;
 
 // ── Telegram ──────────────────────────────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
-if (tg) { tg.ready(); tg.expand(); }
+if (tg) {
+  tg.ready();
+  tg.expand();
+  tg.requestFullscreen?.();           // убирает верхний хедер (Telegram 8.0+)
+  tg.setHeaderColor?.('#0a1208');     // цвет хедера под фон игры
+  tg.setBackgroundColor?.('#0a1208');
+}
 const tgUser = tg?.initDataUnsafe?.user ?? null;
 
 // ── Landscape lock ────────────────────────────────────────────────────────────
@@ -51,7 +57,7 @@ function positionCamera() {
   camera.lookAt(mcx, 0, mcz);
   // Auto-fit VIEW_SIZE: formula derived from projecting map corner (0,0) onto
   // the camera's up-axis with the proportional offset above (+0.3 safety margin)
-  VIEW_SIZE = mcx * 0.427 + mcz * 0.548 + 0.3;
+  VIEW_SIZE = mcx * 0.250 + mcz * 0.322 + 0.1;
   camera.top    =  VIEW_SIZE;
   camera.bottom = -VIEW_SIZE;
   camera.left   = -VIEW_SIZE * aspect;
@@ -207,8 +213,10 @@ function buildMap(obstacles) {
     mapGroup.add(m); return m;
   }
 
-  // ── Пустота ───────────────────────────────────────────────────────────────
-  flat(mw / 2, mh / 2, 600, 600, mVoid, -0.02);
+  // ── Базовый слой (заполняет пространство за пределами карты) ─────────────
+  flat(mw / 2, mh / 2, mw * 2.5, mh * 2.5, mGrassA, -0.015);     // трава за краями
+  flat(riverCX, mh / 2, riverHW * 2, mh * 2.5, mWater, -0.010, 3); // река тоже тянется
+  flat(mw / 2, mh / 2, 600, 600, mVoid, -0.02);                    // чёрная подложка (дальний план)
 
   // ── Трава (шахматные плитки, левая и правая стороны) ──────────────────────
   const tC = 6, tR = 8;
@@ -461,7 +469,7 @@ function getOrCreateChar(id, team) {
 
   // Кольцо команды на земле
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(1.10, 1.52, 28),
+    new THREE.RingGeometry(0.72, 1.00, 28),
     new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
   );
   ring.rotation.x = -Math.PI / 2;
@@ -476,7 +484,7 @@ function getOrCreateChar(id, team) {
   if (model) {
     const box  = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
-    const s    = size.y > 0.001 ? 3.40 / size.y : 1.80;
+    const s    = size.y > 0.001 ? 2.20 / size.y : 1.15;
     model.scale.setScalar(s);
     const box2 = new THREE.Box3().setFromObject(model);
     model.position.y = -box2.min.y;
@@ -1031,7 +1039,7 @@ function drawNameLabels() {
   const playing = gameState === 'playing' || gameState === 'countdown';
   if (!playing) return;
   for (const p of sPlayers) {
-    const sp = projectToScreen(p.x * S, 4.0, p.y * S);
+    const sp = projectToScreen(p.x * S, 2.6, p.y * S);
     if (!sp.visible) continue;
 
     const isMe    = p.id === myId;
