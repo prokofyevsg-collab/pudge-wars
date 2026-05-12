@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { SkeletonUtils } from 'three/addons/utils/SkeletonUtils.js';
 
 // ── Constants (keep in sync with server) ────────────────────────────────────
 const SERVER_URL   = window.location.origin;
@@ -98,19 +97,6 @@ function addTorch(x, z) {
 
 // ── GLB loader ────────────────────────────────────────────────────────────────
 const gltfLoader = new GLTFLoader();
-
-// Pudge model template (loaded once, cloned per character)
-let pudgeTemplate = null;
-let pudgeWalkClip = null;
-
-new Promise(resolve => {
-  gltfLoader.load('assets/pudge/pudge-walk.glb', gltf => {
-    pudgeTemplate = gltf.scene;
-    pudgeTemplate.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
-    pudgeWalkClip = gltf.animations[0] ?? null;
-    resolve(true);
-  }, undefined, err => { console.warn('pudge-walk.glb failed:', err); resolve(false); });
-});
 
 // ── Map ───────────────────────────────────────────────────────────────────────
 let mapGroup = null;
@@ -362,27 +348,32 @@ function getOrCreateChar(id, team) {
   ring.userData.isRing = true;
   group.add(ring);
 
-  let mixer = null, walkAction = null;
-
-  if (pudgeTemplate) {
-    const model = SkeletonUtils.clone(pudgeTemplate);
-    model.scale.setScalar(0.45);
-    applyTeamColor(model, color);
-    group.add(model);
-
-    if (pudgeWalkClip) {
-      mixer = new THREE.AnimationMixer(model);
-      walkAction = mixer.clipAction(pudgeWalkClip);
-      walkAction.setEffectiveTimeScale(1.0);
-      walkAction.play();
-    }
-  } else {
-    group.add(makePudgeBody(color));
-  }
+  // Процедурный Pudge пока GLB грузится
+  const fallbackBody = makePudgeBody(color);
+  group.add(fallbackBody);
 
   scene.add(group);
-  const entry = { group, ring, team, mixer, walkAction, prevX: null, prevY: null };
+  const entry = { group, ring, team, mixer: null, walkAction: null, prevX: null, prevY: null };
   charEntries.set(id, entry);
+
+  // Загружаем GLB (браузер кэширует — повторные вызовы без сети)
+  gltfLoader.load('assets/pudge/pudge-walk.glb', gltf => {
+    if (!charEntries.has(id)) return; // персонаж уже удалён
+    const model = gltf.scene;
+    model.scale.setScalar(0.45);
+    model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+    applyTeamColor(model, color);
+    group.remove(fallbackBody);
+    group.add(model);
+    if (gltf.animations[0]) {
+      const mixer = new THREE.AnimationMixer(model);
+      const walkAction = mixer.clipAction(gltf.animations[0]);
+      walkAction.play();
+      entry.mixer = mixer;
+      entry.walkAction = walkAction;
+    }
+  }, undefined, err => console.warn('pudge GLB load error:', err));
+
   return entry;
 }
 
