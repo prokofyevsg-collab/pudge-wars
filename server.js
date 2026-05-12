@@ -198,7 +198,7 @@ class GameRoom {
       p.x = clamp(p.x, PLAYER_RADIUS, MAP_W - PLAYER_RADIUS);
       p.y = clamp(p.y, PLAYER_RADIUS, MAP_H - PLAYER_RADIUS);
       resolveObstacleCircle(p, PLAYER_RADIUS);
-      if (!p.isBot) resolveWater(p, PLAYER_RADIUS);
+      resolveWater(p, PLAYER_RADIUS);
     }
 
     // Update hooks
@@ -269,24 +269,30 @@ class GameRoom {
         for (const [targetId, target] of this.players) {
           if (targetId === ownerId) continue;
           if (!target.alive) continue;
-          if (target.team === owner.team) continue;
 
           if (dist(hook.x, hook.y, target.x, target.y) < HOOK_HIT_RADIUS + PLAYER_RADIUS) {
-            target.hp -= 1;
-            target.hitFlash = 300; // ms flash duration
-            if (target.hp <= 0) {
-              target.alive = false;
-              target.caughtByHook = false;
-              hook.caughtId = null;
-              this.pendingKills.push({
-                killerName: owner.name,
-                killerTeam: owner.team,
-                victimName: target.name,
-                victimTeam: target.team,
-              });
-            } else {
+            if (target.team === owner.team) {
+              // Союзник: подтянуть без урона
               hook.caughtId = targetId;
               target.caughtByHook = true;
+            } else {
+              // Враг: урон + подтягивание
+              target.hp -= 1;
+              target.hitFlash = 300;
+              if (target.hp <= 0) {
+                target.alive = false;
+                target.caughtByHook = false;
+                hook.caughtId = null;
+                this.pendingKills.push({
+                  killerName: owner.name,
+                  killerTeam: owner.team,
+                  victimName: target.name,
+                  victimTeam: target.team,
+                });
+              } else {
+                hook.caughtId = targetId;
+                target.caughtByHook = true;
+              }
             }
             hook.returning = true;
             break;
@@ -477,7 +483,7 @@ function tickBots(room, dt) {
     }
 
     // Hook only when cooldown ready + close enough + with inaccuracy
-    const hookRange = HOOK_RANGE * 0.65;
+    const hookRange = HOOK_RANGE;
     if (bot.hookCooldown <= 0 && !room.hooks.has(id) && nearestDist < hookRange) {
       // Add aim error so player can dodge
       const aimError = 40;

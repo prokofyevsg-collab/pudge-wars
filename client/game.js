@@ -933,15 +933,14 @@ canvas.addEventListener('touchmove', e => {
 }, { passive: false });
 
 canvas.addEventListener('touchend', e => {
-  if (gameState !== 'playing') return;
   e.preventDefault();
   for (const t of e.changedTouches) {
     if (moveJoy.active && t.identifier === moveJoy.pid) {
       Object.assign(moveJoy, { active: false, pid: -1, nx: 0, ny: 0 });
-      socket?.emit('input', { dx: 0, dy: 0 });
+      if (gameState === 'playing') socket?.emit('input', { dx: 0, dy: 0 });
     }
     if (aimJoy.active && t.identifier === aimJoy.pid) {
-      if (Math.abs(aimJoy.nx) > 0.05 || Math.abs(aimJoy.ny) > 0.05) {
+      if (gameState === 'playing' && (Math.abs(aimJoy.nx) > 0.05 || Math.abs(aimJoy.ny) > 0.05)) {
         const target = aimDirToServer(aimJoy.nx, aimJoy.ny);
         if (target) socket?.emit('input', { hookX: target.x, hookY: target.y });
       }
