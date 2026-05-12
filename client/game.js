@@ -85,11 +85,20 @@ class MenuScene extends Phaser.Scene {
 // ══════════════════════════════════════════════════════════════════════════════
 // GameScene
 // ══════════════════════════════════════════════════════════════════════════════
+// 18 characters, assigned round-robin per player slot
+const CHAR_KEYS = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r'];
+
 class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
 
   init(data) {
     this.mode = data?.mode || 'pvp';
+  }
+
+  preload() {
+    CHAR_KEYS.forEach(k => {
+      this.load.image(`char-${k}`, `assets/chars/char-${k}.png`);
+    });
   }
 
   create() {
@@ -113,6 +122,11 @@ class GameScene extends Phaser.Scene {
     this.hookGfx   = this.add.graphics().setDepth(2);
     this.playerGfx = this.add.graphics().setDepth(3);
     this.uiGfx     = this.add.graphics().setDepth(10);
+
+    // Sprite containers: id -> { img, mask, maskGfx }
+    this.charSprites = new Map();
+    // Player slot index: id -> number (for char key assignment)
+    this.playerSlots = new Map();
 
     // Text layers
     this.nameTexts  = new Map(); // id -> Text
@@ -195,6 +209,8 @@ class GameScene extends Phaser.Scene {
       this.serverPlayers = this.serverPlayers.filter(p => p.id !== d.id);
       const t = this.nameTexts.get(d.id);
       if (t) { t.destroy(); this.nameTexts.delete(d.id); }
+      const s = this.charSprites.get(d.id);
+      if (s) { s.img.destroy(); s.maskShape.destroy(); this.charSprites.delete(d.id); }
     });
 
     this.socket.on('game_over', d => {
@@ -212,21 +228,51 @@ class GameScene extends Phaser.Scene {
   drawBackground() {
     const g = this.bgGfx;
     g.clear();
-    g.fillStyle(0x0d0d1a).fillRect(0, 0, this.W, this.H);
-    drawGrid(this, this.W, this.H, 50, 0x1a1a2e, 0.5, g);
 
-    // Team zones (subtle)
-    g.fillStyle(TEAM_COLORS[0], 0.06).fillRect(0, 0, this.W / 2, this.H);
-    g.fillStyle(TEAM_COLORS[1], 0.06).fillRect(this.W / 2, 0, this.W / 2, this.H);
+    // Dungeon floor — warm orange/brown like the Kenney modular environment
+    g.fillStyle(0x7a4a28).fillRect(0, 0, this.W, this.H);
 
-    // Obstacles
+    // Floor tile grid
+    const tileSize = 48 * Math.min(this.scaleX, this.scaleY);
+    g.lineStyle(1, 0x5a3618, 0.6);
+    for (let x = 0; x < this.W; x += tileSize) {
+      g.beginPath().moveTo(x, 0).lineTo(x, this.H).strokePath();
+    }
+    for (let y = 0; y < this.H; y += tileSize) {
+      g.beginPath().moveTo(0, y).lineTo(this.W, y).strokePath();
+    }
+
+    // Dungeon border walls (thick purple/stone)
+    const bw = 16;
+    g.fillStyle(0x5a4a7a);
+    g.fillRect(0, 0, this.W, bw);           // top
+    g.fillRect(0, this.H - bw, this.W, bw); // bottom
+    g.fillRect(0, 0, bw, this.H);           // left
+    g.fillRect(this.W - bw, 0, bw, this.H); // right
+
+    // Wall detail lines
+    g.lineStyle(2, 0x8a7aaa, 0.6);
+    g.strokeRect(bw, bw, this.W - bw * 2, this.H - bw * 2);
+
+    // Team zone subtle tint
+    g.fillStyle(TEAM_COLORS[0], 0.06).fillRect(bw, bw, this.W / 2 - bw, this.H - bw * 2);
+    g.fillStyle(TEAM_COLORS[1], 0.06).fillRect(this.W / 2, bw, this.W / 2 - bw, this.H - bw * 2);
+
+    // Obstacles — dungeon stone blocks
     const og = this.obstGfx;
     og.clear();
     for (const o of this.obstacles) {
       const ox = o.x * this.scaleX, oy = o.y * this.scaleY;
       const ow = o.w * this.scaleX, oh = o.h * this.scaleY;
-      og.fillStyle(0x2c3e50).fillRect(ox - ow / 2, oy - oh / 2, ow, oh);
-      og.lineStyle(2, 0x34495e, 1).strokeRect(ox - ow / 2, oy - oh / 2, ow, oh);
+      // Stone block shadow
+      og.fillStyle(0x1a1020, 0.5).fillRect(ox - ow / 2 + 4, oy - oh / 2 + 4, ow, oh);
+      // Stone fill
+      og.fillStyle(0x6a5a8a).fillRect(ox - ow / 2, oy - oh / 2, ow, oh);
+      // Stone highlight top
+      og.fillStyle(0x8a7aaa, 0.5).fillRect(ox - ow / 2, oy - oh / 2, ow, 6);
+      og.fillStyle(0x8a7aaa, 0.3).fillRect(ox - ow / 2, oy - oh / 2, 6, oh);
+      // Stone outline
+      og.lineStyle(2, 0x4a3a6a, 1).strokeRect(ox - ow / 2, oy - oh / 2, ow, oh);
     }
   }
 
@@ -273,44 +319,74 @@ class GameScene extends Phaser.Scene {
       const isMe = p.id === this.myId;
       const flash = p.hitFlash > 0;
 
+      // Assign slot index for char sprite selection
+      if (!this.playerSlots.has(p.id)) {
+        this.playerSlots.set(p.id, this.playerSlots.size);
+      }
+      const slotIdx = this.playerSlots.get(p.id);
+      const charKey = `char-${CHAR_KEYS[slotIdx % CHAR_KEYS.length]}`;
+
+      // Shadow
+      pg.fillStyle(0x000000, 0.4).fillEllipse(px + 3, py + 6, r * 1.9, r * 0.75);
+
       if (!p.alive) {
+        // Dead — dim circle
+        pg.fillStyle(0x000000, 0.6).fillCircle(px, py, r);
         pg.lineStyle(2, color, 0.3).strokeCircle(px, py, r);
-        pg.fillStyle(0x000000, 0.5).fillCircle(px, py, r);
-        this.setNameText(p.id, px, py + r + 5, `💀 ${p.name}`, '#666666');
+        this.updateCharSprite(p.id, px, py, r, charKey, 0.25, color);
+        this.setNameText(p.id, px, py + r + 5, `💀 ${p.name}`, '#555555');
         continue;
       }
 
-      // Shadow
-      pg.fillStyle(0x000000, 0.35).fillEllipse(px + 3, py + 5, r * 1.8, r * 0.8);
-
-      // Body
-      const bodyColor = flash ? 0xffffff : color;
-      pg.fillStyle(bodyColor, 1).fillCircle(px, py, r);
-
-      // Me indicator ring
+      // Coloured ring behind sprite (team color)
+      pg.fillStyle(color, flash ? 1 : 0.9).fillCircle(px, py, r + 3);
       if (isMe) {
-        pg.lineStyle(3, 0xffffff, 0.9).strokeCircle(px, py, r + 4);
+        pg.lineStyle(3, 0xffffff, 0.95).strokeCircle(px, py, r + 6);
       }
+
+      // Character face sprite with circle mask
+      this.updateCharSprite(p.id, px, py, r, charKey, flash ? 0.5 : 1, color);
 
       // HP pips
       for (let i = 0; i < 2; i++) {
-        const pipX = px + (i === 0 ? -8 : 8) * this.scaleX;
-        const pipY = py - (r + 10);
+        const pipX = px + (i === 0 ? -(r * 0.4) : (r * 0.4));
+        const pipY = py - r - 10;
         const filled = i < p.hp;
-        pg.fillStyle(filled ? 0xff4444 : 0x333333, 1).fillCircle(pipX, pipY, 5);
-        pg.lineStyle(1, 0x000, 0.5).strokeCircle(pipX, pipY, 5);
+        pg.fillStyle(filled ? 0xff3333 : 0x333333, 1).fillCircle(pipX, pipY, 5);
+        pg.lineStyle(1, 0x000000, 0.6).strokeCircle(pipX, pipY, 5);
       }
 
-      // Hook ready indicator
+      // Hook cooldown dot
       const hookReady = p.hookCooldown <= 0;
-      pg.fillStyle(hookReady ? 0x2ecc71 : 0xe74c3c, 1)
-        .fillCircle(px, py - r - 18, 4);
+      pg.fillStyle(hookReady ? 0x2ecc71 : 0xe74c3c, 0.9)
+        .fillCircle(px, py - r - 20, 4);
 
-      // Name
-      this.setNameText(p.id, px, py + r + 4,
+      // Name tag
+      this.setNameText(p.id, px, py + r + 6,
         (isMe ? '▶ ' : '') + p.name,
-        isMe ? '#ffffff' : '#cccccc');
+        isMe ? '#ffffff' : '#dddddd');
     }
+  }
+
+  updateCharSprite(id, px, py, r, charKey, alpha, tintColor) {
+    if (!this.charSprites.has(id)) {
+      // Create masked sprite
+      const img = this.add.image(px, py, charKey)
+        .setDepth(3.5)
+        .setDisplaySize(r * 2, r * 2);
+
+      const maskShape = this.make.graphics({ x: px, y: py, add: false });
+      maskShape.fillStyle(0xffffff).fillCircle(0, 0, r);
+      const mask = maskShape.createGeometryMask();
+      img.setMask(mask);
+
+      this.charSprites.set(id, { img, maskShape });
+    }
+
+    const { img, maskShape } = this.charSprites.get(id);
+    img.setPosition(px, py).setDisplaySize(r * 2, r * 2).setAlpha(alpha);
+    maskShape.setPosition(px, py);
+    maskShape.clear().fillStyle(0xffffff).fillCircle(0, 0, r);
   }
 
   setNameText(id, x, y, text, color) {
