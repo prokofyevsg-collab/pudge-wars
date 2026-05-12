@@ -360,8 +360,20 @@ function getOrCreateChar(id, team) {
   gltfLoader.load('assets/pudge/pudge-walk.glb', gltf => {
     if (!charEntries.has(id)) return; // персонаж уже удалён
     const model = gltf.scene;
-    model.scale.setScalar(0.45);
     model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+
+    // Авто-масштаб: подгоняем высоту персонажа под 0.85 world units
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const targetH = 0.85;
+    const s = size.y > 0.001 ? targetH / size.y : 0.45;
+    model.scale.setScalar(s);
+    // Поднимаем ноги на уровень земли
+    const box2 = new THREE.Box3().setFromObject(model);
+    model.position.y = -box2.min.y;
+
+    console.log(`pudge loaded: raw size ${size.x.toFixed(2)}x${size.y.toFixed(2)}x${size.z.toFixed(2)}, scale=${s.toFixed(4)}`);
+
     applyTeamColor(model, color);
     group.remove(fallbackBody);
     group.add(model);
@@ -372,7 +384,7 @@ function getOrCreateChar(id, team) {
       entry.mixer = mixer;
       entry.walkAction = walkAction;
     }
-  }, undefined, err => console.warn('pudge GLB load error:', err));
+  }, undefined, err => console.error('pudge GLB load FAILED:', err));
 
   return entry;
 }
