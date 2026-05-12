@@ -15,32 +15,38 @@ app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
 // --- Constants ---
 const TICK_RATE = 30;
-const MAP_W = 1600;
-const MAP_H = 900;
-const PLAYER_SPEED = 160;
-const HOOK_SPEED = 500;
-const HOOK_RANGE = 600;
+const MAP_W = 2000;
+const MAP_H = 1200;
+const PLAYER_SPEED = 220;
+const HOOK_SPEED = 550;
+const HOOK_RANGE = 700;
 const HOOK_COOLDOWN = 6000;
 const PLAYER_RADIUS = 22;
 const HOOK_HIT_RADIUS = 18;
 
 // Spawn positions: [team0p0, team1p0, team0p1, team1p1]
 const SPAWNS = [
-  { x: 220, y: 220 },
-  { x: MAP_W - 220, y: MAP_H - 220 },
-  { x: 220, y: MAP_H - 220 },
-  { x: MAP_W - 220, y: 220 },
+  { x: 280, y: 280 },
+  { x: MAP_W - 280, y: MAP_H - 280 },
+  { x: 280, y: MAP_H - 280 },
+  { x: MAP_W - 280, y: 280 },
 ];
 
 // Obstacles (rect {x,y,w,h} centered)
+// River runs vertically at x=MAP_W/2 ± 200. Trees stay on left (x<650) or right (x>1350).
 const OBSTACLES = [
-  { x: MAP_W / 2,       y: MAP_H / 2,       w: 130, h: 130 },
-  { x: MAP_W / 4,       y: MAP_H / 4,       w: 100, h: 100 },
-  { x: (MAP_W * 3) / 4, y: MAP_H / 4,       w: 100, h: 100 },
-  { x: MAP_W / 4,       y: (MAP_H * 3) / 4, w: 100, h: 100 },
-  { x: (MAP_W * 3) / 4, y: (MAP_H * 3) / 4, w: 100, h: 100 },
-  { x: MAP_W / 2,       y: MAP_H / 4,       w:  80, h:  80 },
-  { x: MAP_W / 2,       y: (MAP_H * 3) / 4, w:  80, h:  80 },
+  // Left side trees
+  { x: 180,  y: 180,  w: 90, h: 90 },
+  { x: 480,  y: 140,  w: 90, h: 90 },
+  { x: 150,  y: 500,  w: 90, h: 90 },
+  { x: 420,  y: 760,  w: 90, h: 90 },
+  { x: 180,  y: 1020, w: 90, h: 90 },
+  // Right side trees
+  { x: 1820, y: 180,  w: 90, h: 90 },
+  { x: 1520, y: 140,  w: 90, h: 90 },
+  { x: 1850, y: 500,  w: 90, h: 90 },
+  { x: 1580, y: 760,  w: 90, h: 90 },
+  { x: 1820, y: 1020, w: 90, h: 90 },
 ];
 
 // --- Helpers ---
@@ -99,6 +105,7 @@ class GameRoom {
     this.players = new Map(); // socketId -> player
     this.hooks = new Map();   // socketId -> hook
     this.state = 'waiting';
+    this.pendingKills = [];
   }
 
   addPlayer(socketId, user) {
@@ -248,6 +255,12 @@ class GameRoom {
               target.alive = false;
               target.caughtByHook = false;
               hook.caughtId = null;
+              this.pendingKills.push({
+                killerName: owner.name,
+                killerTeam: owner.team,
+                victimName: target.name,
+                victimTeam: target.team,
+              });
             } else {
               hook.caughtId = targetId;
               target.caughtByHook = true;
@@ -278,6 +291,7 @@ class GameRoom {
   }
 
   snapshot() {
+    const kills = this.pendingKills.splice(0);
     return {
       players: [...this.players.values()].map(p => ({
         id: p.id,
@@ -297,6 +311,7 @@ class GameRoom {
         returning: h.returning,
         caughtId: h.caughtId,
       })),
+      kills,
     };
   }
 }
@@ -453,10 +468,10 @@ io.on('connection', (socket) => {
 
     // Fix spawns after manual team assignment
     const spawns = [
-      { x: 220, y: 220 },
-      { x: MAP_W - 220, y: MAP_H - 220 },
-      { x: 220, y: MAP_H - 220 },
-      { x: MAP_W - 220, y: 220 },
+      { x: 280, y: 280 },
+      { x: MAP_W - 280, y: MAP_H - 280 },
+      { x: 280, y: MAP_H - 280 },
+      { x: MAP_W - 280, y: 280 },
     ];
     let si = 0;
     for (const p of room.players.values()) {

@@ -32,7 +32,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 // ── Scene ─────────────────────────────────────────────────────────────────────
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x3a7020);
+scene.background = new THREE.Color(0x0f1a0a);
 // No fog — isometric view shows the whole scene from far away; fog kills visibility
 
 // ── Camera ────────────────────────────────────────────────────────────────────
@@ -61,28 +61,28 @@ function positionCamera() {
 positionCamera();
 
 // ── Lighting ──────────────────────────────────────────────────────────────────
-// Strong ambient so no face is ever fully dark
-scene.add(new THREE.AmbientLight(0xeef4ff, 1.4));
+// Ambient — daylight forest tone
+scene.add(new THREE.AmbientLight(0xccddaa, 1.3));
 
 // Sky / ground hemisphere
-const hemi = new THREE.HemisphereLight(0x99ccff, 0x3d8028, 1.0);
+const hemi = new THREE.HemisphereLight(0x88bbee, 0x224411, 0.9);
 scene.add(hemi);
 
 // Key directional (casts shadows)
-const sun = new THREE.DirectionalLight(0xffffff, 1.8);
+const sun = new THREE.DirectionalLight(0xeef5cc, 1.6);
 sun.position.set(10, 20, 10);
 sun.castShadow = true;
 Object.assign(sun.shadow.mapSize, { width: 2048, height: 2048 });
 Object.assign(sun.shadow.camera, { left: -25, right: 25, top: 25, bottom: -25, near: 1, far: 90 });
 scene.add(sun);
 
-// Front fill (warm, opposite side)
-const fill = new THREE.DirectionalLight(0xffd0a0, 0.9);
+// Front fill (cool, opposite side)
+const fill = new THREE.DirectionalLight(0xaaddcc, 0.8);
 fill.position.set(-5, 12, -5);
 scene.add(fill);
 
 // Overhead fill — ensures tops of characters are well-lit
-const over = new THREE.DirectionalLight(0xffeedd, 0.7);
+const over = new THREE.DirectionalLight(0xddeebb, 0.7);
 over.position.set(0, 20, 0);
 scene.add(over);
 
@@ -166,125 +166,186 @@ function buildMap(obstacles) {
   mapGroup = new THREE.Group();
   const mw = MAP_W * S, mh = MAP_H * S;
 
-  const mGrass  = new THREE.MeshLambertMaterial({ color: 0x4a8530 });
-  const mGrass2 = new THREE.MeshLambertMaterial({ color: 0x3d7025 });
-  const mDirt   = new THREE.MeshLambertMaterial({ color: 0x8a5c28 });
-  const mPath   = new THREE.MeshLambertMaterial({ color: 0xa07040 });
-  const mWater  = new THREE.MeshLambertMaterial({ color: 0x2277aa });
-  const mStone  = new THREE.MeshLambertMaterial({ color: 0x6d6458 });
-  const mRock   = new THREE.MeshLambertMaterial({ color: 0x857a6a });
-  const mTrunk  = new THREE.MeshLambertMaterial({ color: 0x5a3510 });
-  const mLeaf   = new THREE.MeshLambertMaterial({ color: 0x296618 });
-  const mLeaf2  = new THREE.MeshLambertMaterial({ color: 0x1e5012 });
+  // ── Геометрия реки (вертикальная полоса по центру x) ─────────────────────
+  const riverCX = mw / 2;
+  const riverHW = mw * 0.085;          // полуширина воды в world-units ≈ 1.7
+  const bankW   = mw * 0.048;          // полоса грязного берега ≈ 1.0
+  const leftEnd  = riverCX - riverHW - bankW;   // правая граница левой травы
+  const rightSt  = riverCX + riverHW + bankW;   // левая граница правой травы
 
-  function flat(x, z, w, d, mat, y, ro = 0) {
+  // ── Материалы ─────────────────────────────────────────────────────────────
+  const mVoid   = new THREE.MeshLambertMaterial({ color: 0x030804 });
+  const mGrassA = new THREE.MeshLambertMaterial({ color: 0x3d7a28 });
+  const mGrassB = new THREE.MeshLambertMaterial({ color: 0x2f6020 });
+  const mDirt   = new THREE.MeshLambertMaterial({ color: 0x8b6535 });
+  const mMud    = new THREE.MeshLambertMaterial({ color: 0x6b4e28 });
+  const mWater  = new THREE.MeshLambertMaterial({ color: 0x1e4fa0, transparent: true, opacity: 0.88 });
+  const mDeep   = new THREE.MeshLambertMaterial({ color: 0x112e6a, transparent: true, opacity: 0.92 });
+  const mRipple = new THREE.MeshBasicMaterial ({ color: 0x88bbff, transparent: true, opacity: 0.22 });
+  const mBark   = new THREE.MeshLambertMaterial({ color: 0x5a3a1a });
+  const mLeafA  = new THREE.MeshLambertMaterial({ color: 0x1d6b10 });
+  const mLeafB  = new THREE.MeshLambertMaterial({ color: 0x165409 });
+  const mLeafC  = new THREE.MeshLambertMaterial({ color: 0x0f3d07 });
+  const mRock   = new THREE.MeshLambertMaterial({ color: 0x5e5e50 });
+  const mStone  = new THREE.MeshLambertMaterial({ color: 0x7a7a6a });
+  const mWall   = new THREE.MeshLambertMaterial({ color: 0x2a2a22 });
+  const mFount  = new THREE.MeshStandardMaterial({ color: 0x88aacc, metalness: 0.35, roughness: 0.55 });
+  const mWaterF = new THREE.MeshBasicMaterial  ({ color: 0x55aaff, transparent: true, opacity: 0.78 });
+
+  function flat(x, z, w, d, mat, y = 0, ro = 0) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
-    m.rotation.x = -Math.PI / 2; m.position.set(x, y, z);
-    m.receiveShadow = true; m.renderOrder = ro;
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(x, y, z);
+    m.receiveShadow = true;
+    m.renderOrder = ro;
     mapGroup.add(m);
   }
-
-  function addTree(tx, tz, scale = 1.0) {
-    const h = (0.6 + Math.abs(Math.sin(tx * 3.7 + tz * 5.1)) * 0.5) * scale;
-    const r = (0.32 + Math.abs(Math.sin(tx * 7.1 + tz * 2.3)) * 0.18) * scale;
-    const leafMat = Math.sin(tx + tz) > 0 ? mLeaf : mLeaf2;
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.055 * scale, 0.09 * scale, h, 6), mTrunk);
-    trunk.position.set(tx, h / 2, tz); trunk.castShadow = true; mapGroup.add(trunk);
-    const crown = new THREE.Mesh(new THREE.SphereGeometry(r, 7, 5), leafMat);
-    crown.scale.y = 1.3; crown.position.set(tx, h + r * 0.6, tz);
-    crown.castShadow = true; mapGroup.add(crown);
+  function box3(x, y, z, w, h, d, mat, sh = true) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    if (sh) { m.castShadow = true; m.receiveShadow = true; }
+    mapGroup.add(m); return m;
   }
 
-  // ── Бесконечный газон: огромная плоскость покрывает весь экран за краями карты
-  flat(mw / 2, mh / 2, 200, 200, mGrass2, 0, 0);
-  // Светлый газон внутри карты
-  flat(mw / 2, mh / 2, mw, mh, mGrass, 0.001, 1);
+  // ── Пустота ───────────────────────────────────────────────────────────────
+  flat(mw / 2, mh / 2, 600, 600, mVoid, -0.02);
 
-  // ── Центральный коридор боя (грязь, 54% высоты карты)
-  const laneH = mh * 0.54, laneZ = mh / 2;
-  flat(mw / 2, laneZ, mw, laneH, mDirt, 0.003, 2);
-  // Светлые полосы по краям коридора
-  flat(mw / 2, laneZ - laneH / 2 + 0.25, mw, 0.50, mPath, 0.004, 3);
-  flat(mw / 2, laneZ + laneH / 2 - 0.25, mw, 0.50, mPath, 0.004, 3);
-
-  // ── Река через центр коридора
-  const rH = laneH * 0.30;
-  flat(mw / 2, laneZ, mw, rH, mWater, 0.006, 4);
-  flat(mw / 2, laneZ - rH / 2 - 0.18, mw, 0.36, mStone, 0.005, 3);
-  flat(mw / 2, laneZ + rH / 2 + 0.18, mw, 0.36, mStone, 0.005, 3);
-
-  // ── Центральный фонтан
-  const fMat = new THREE.MeshLambertMaterial({ color: 0x786e60 });
-  const fBase = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.75, 0.22, 16), fMat);
-  fBase.position.set(mw / 2, 0.11, laneZ); fBase.castShadow = true; mapGroup.add(fBase);
-  const fPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.78, 12), fMat);
-  fPillar.position.set(mw / 2, 0.60, laneZ); fPillar.castShadow = true; mapGroup.add(fPillar);
-  const fBowl = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.12, 8, 24), fMat);
-  fBowl.rotation.x = Math.PI / 2; fBowl.position.set(mw / 2, 1.00, laneZ); mapGroup.add(fBowl);
-  const fWater = new THREE.Mesh(new THREE.CircleGeometry(0.40, 20),
-    new THREE.MeshBasicMaterial({ color: 0x55bbff, transparent: true, opacity: 0.78 }));
-  fWater.rotation.x = -Math.PI / 2; fWater.position.set(mw / 2, 1.02, laneZ);
-  fWater.renderOrder = 5; mapGroup.add(fWater);
-
-  // ── Деревья: несколько рядов, создают эффект "лес → поляна → коридор"
-  const zLo = laneZ - laneH / 2;
-  const zHi = laneZ + laneH / 2;
-
-  // За пределами карты — густой лес (крупные деревья)
-  for (let i = 0; i < 22; i++) {
-    const tx = -3 + (i / 21) * (mw + 6);
-    addTree(tx, -1.2, 1.3);
-    addTree(tx, mh + 1.2, 1.3);
+  // ── Трава (шахматные плитки, левая и правая стороны) ──────────────────────
+  const tC = 6, tR = 8;
+  const tW = leftEnd / tC, tH = mh / tR;
+  for (let c = 0; c < tC; c++) for (let r = 0; r < tR; r++) {
+    flat(tW * (c + 0.5), tH * (r + 0.5), tW, tH,
+         (c + r) % 2 === 0 ? mGrassA : mGrassB, 0.001, 1);
   }
-  // По краям карты — деревья средние
-  for (let i = 0; i < 16; i++) {
-    const tx = -0.5 + (i / 15) * (mw + 1.0);
-    addTree(tx, -0.3, 1.1);
-    addTree(tx, mh + 0.3, 1.1);
-  }
-  // Внутри карты в траве — мелкие деревья
-  for (let i = 0; i < 12; i++) {
-    const tx = 0.4 + (i / 11) * (mw - 0.8);
-    if (i % 2 === 0) addTree(tx, zLo - 0.6, 0.9);
-    if (i % 2 === 1) addTree(tx, zHi + 0.6, 0.9);
-    // Ещё ряды глубже в траву
-    if (i % 3 === 0) addTree(tx, zLo - 1.3, 1.0);
-    if (i % 3 === 1) addTree(tx, zHi + 1.3, 1.0);
-  }
-  // Деревья по левому и правому краям (вертикальные стены леса)
-  for (let i = 0; i < 8; i++) {
-    const tz = zLo + 0.2 + (i / 7) * laneH * 0.6;
-    addTree(-0.5, tz, 1.0);
-    addTree(mw + 0.5, tz, 1.0);
+  const rW = (mw - rightSt) / tC;
+  for (let c = 0; c < tC; c++) for (let r = 0; r < tR; r++) {
+    flat(rightSt + rW * (c + 0.5), tH * (r + 0.5), rW, tH,
+         (c + r) % 2 === 0 ? mGrassA : mGrassB, 0.001, 1);
   }
 
-  // ── Каменные препятствия (из сервера) — рендерим как природные валуны
+  // ── Грязевые берега ───────────────────────────────────────────────────────
+  flat(riverCX - riverHW - bankW / 2, mh / 2, bankW, mh, mMud,  0.003, 2);
+  flat(riverCX + riverHW + bankW / 2, mh / 2, bankW, mh, mMud,  0.003, 2);
+  // Переходные грязевые полоски (светлее)
+  flat(riverCX - riverHW - bankW - 0.12, mh / 2, 0.28, mh, mDirt, 0.002, 2);
+  flat(riverCX + riverHW + bankW + 0.12, mh / 2, 0.28, mh, mDirt, 0.002, 2);
+
+  // ── Вода ──────────────────────────────────────────────────────────────────
+  flat(riverCX, mh / 2, riverHW * 2, mh, mWater, 0.005, 3);
+  flat(riverCX, mh / 2, riverHW * 0.75, mh, mDeep, 0.006, 4);
+  // Рябь (горизонтальные полосы)
+  for (let i = 0; i < 10; i++) {
+    flat(riverCX, mh * (i + 0.4) / 10, riverHW * 1.65, 0.10, mRipple, 0.007, 5);
+  }
+
+  // ── Периметр (каменные стены) ─────────────────────────────────────────────
+  const bH = 0.42, bT = 0.20;
+  box3(mw / 2, bH / 2, -bT / 2,   mw + bT * 2, bH, bT, mWall);
+  box3(mw / 2, bH / 2, mh + bT/2, mw + bT * 2, bH, bT, mWall);
+  box3(-bT / 2, bH / 2, mh / 2,   bT, bH, mh, mWall);
+  box3(mw + bT/2, bH / 2, mh / 2, bT, bH, mh, mWall);
+
+  // ── Деревья (декоративные, фиксированные позиции) ─────────────────────────
+  function addTree(wx, wz, sc = 1.0) {
+    const tH2 = 0.62 * sc, tR = 0.09 * sc;
+    const tr = new THREE.Mesh(new THREE.CylinderGeometry(tR * 0.65, tR, tH2, 8), mBark);
+    tr.position.set(wx, tH2 / 2, wz); tr.castShadow = true; mapGroup.add(tr);
+    const br = 0.38 * sc, cH = 0.60 * sc;
+    [
+      { y: tH2 + cH * 0.30, r: br,        mat: mLeafA },
+      { y: tH2 + cH * 0.65, r: br * 0.70, mat: mLeafB },
+      { y: tH2 + cH * 1.00, r: br * 0.42, mat: mLeafC },
+    ].forEach(({ y, r, mat }) => {
+      const c = new THREE.Mesh(new THREE.ConeGeometry(r, cH * 0.55, 9), mat);
+      c.position.set(wx, y, wz); c.castShadow = true; mapGroup.add(c);
+    });
+  }
+
+  // Левая сторона
+  [
+    [0.06, 0.07, 1.1], [0.20, 0.19, 1.2], [0.09, 0.36, 0.9],
+    [0.28, 0.52, 1.0], [0.07, 0.68, 1.2], [0.23, 0.83, 1.0],
+    [0.13, 0.94, 0.9], [0.31, 0.11, 1.1], [0.04, 0.50, 1.0],
+    [0.26, 0.63, 1.2], [0.11, 0.28, 0.85],[0.33, 0.77, 0.9],
+  ].forEach(([fx, fz, sc]) => addTree(fx * leftEnd, fz * mh, sc));
+
+  // Правая сторона (зеркально)
+  [
+    [0.06, 0.07, 1.1], [0.20, 0.19, 1.2], [0.09, 0.36, 0.9],
+    [0.28, 0.52, 1.0], [0.07, 0.68, 1.2], [0.23, 0.83, 1.0],
+    [0.13, 0.94, 0.9], [0.31, 0.11, 1.1], [0.04, 0.50, 1.0],
+    [0.26, 0.63, 1.2], [0.11, 0.28, 0.85],[0.33, 0.77, 0.9],
+  ].forEach(([fx, fz, sc]) => addTree(mw - fx * (mw - rightSt), fz * mh, sc));
+
+  // ── Камни вдоль берега ────────────────────────────────────────────────────
+  [0.08,0.18,0.30,0.42,0.55,0.66,0.78,0.90].forEach((fz, i) => {
+    const z = fz * mh;
+    const sc = 0.85 + (i % 3) * 0.15;
+    const offL = (i % 2 === 0 ? 0.08 : -0.06);
+    const offR = (i % 2 === 0 ? -0.08 : 0.06);
+    [
+      [riverCX - riverHW - bankW * 0.35 + offL, z, sc],
+      [riverCX + riverHW + bankW * 0.35 + offR, z, sc],
+    ].forEach(([rx, rz, rsc]) => {
+      const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.11 * rsc, 0), mRock);
+      r.position.set(rx, 0.05 * rsc, rz);
+      r.rotation.y = fz * 7.3;
+      r.castShadow = true; mapGroup.add(r);
+    });
+  });
+
+  // ── Фонтан / руна (вверху по центру реки) ────────────────────────────────
+  const fcx = riverCX, fcz = mh * 0.10;
+  box3(fcx, 0.07, fcz, 0.95, 0.14, 0.95, mStone);
+  box3(fcx, 0.22, fcz, 0.72, 0.16, 0.72, mStone);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.40, 0.058, 7, 20), mFount);
+  rim.rotation.x = Math.PI / 2; rim.position.set(fcx, 0.32, fcz);
+  rim.castShadow = true; mapGroup.add(rim);
+  flat(fcx, fcz, 0.64, 0.64, mWaterF, 0.30, 6);
+  box3(fcx, 0.60, fcz, 0.11, 0.42, 0.11, mFount);
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), mFount);
+  ball.position.set(fcx, 0.88, fcz); mapGroup.add(ball);
+
+  // ── Препятствия-пни (данные сервера) ─────────────────────────────────────
   obstacles.forEach(o => {
-    const ox = o.x * S, oz = o.y * S, ow = o.w * S, od = o.h * S;
-    const rh = 0.5 + Math.abs(Math.sin(ox * 5.3 + oz * 7.1)) * 0.35;
-    const radius = Math.max(ow, od) * 0.48;
-    const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(radius, 1), mRock);
-    rock.scale.set(ow / (radius * 2), rh / (radius * 2), od / (radius * 2));
-    rock.rotation.y = Math.abs(Math.sin(ox * 3.7 + oz * 11.3)) * Math.PI * 2;
-    rock.position.set(ox, rh * 0.45, oz);
-    rock.castShadow = true; rock.receiveShadow = true; mapGroup.add(rock);
-    const shdw = new THREE.Mesh(
-      new THREE.CircleGeometry(Math.max(ow, od) * 0.55, 10),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 })
-    );
-    shdw.rotation.x = -Math.PI / 2; shdw.position.set(ox, 0.002, oz);
-    shdw.renderOrder = 2; mapGroup.add(shdw);
+    const cx = o.x * S, cz = o.y * S;
+    const r = Math.min(o.w, o.h) * S * 0.38;
+    const stH = 0.46;
+    const st = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.52, r * 0.72, stH, 10), mBark);
+    st.position.set(cx, stH / 2, cz); st.castShadow = true; mapGroup.add(st);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.58, r * 0.58, 0.06, 10),
+      new THREE.MeshLambertMaterial({ color: 0x7a5530 }));
+    cap.position.set(cx, stH + 0.02, cz); mapGroup.add(cap);
+    const sh = new THREE.Mesh(new THREE.CircleGeometry(r * 0.95, 12),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 }));
+    sh.rotation.x = -Math.PI / 2; sh.position.set(cx, 0.01, cz);
+    sh.renderOrder = 2; mapGroup.add(sh);
   });
 
   scene.add(mapGroup);
 
-  // ── Освещение: фонтан синий + оранжевые факелы у коридора
+  // ── Освещение ─────────────────────────────────────────────────────────────
   torches.length = 0;
-  const fl = new THREE.PointLight(0x44aaff, 3.5, 7);
-  fl.position.set(mw / 2, 2.0, laneZ); scene.add(fl); torches.push(fl);
-  addTorch(mw * 0.22, zLo - 0.2); addTorch(mw * 0.78, zLo - 0.2);
-  addTorch(mw * 0.22, zHi + 0.2); addTorch(mw * 0.78, zHi + 0.2);
-  addTorch(mw * 0.50, zLo - 0.2); addTorch(mw * 0.50, zHi + 0.2);
+
+  // Фонтанный свет (синий, пульсирующий)
+  const fLight = new THREE.PointLight(0x44aaff, 4.5, mw * 0.55);
+  fLight.position.set(fcx, 1.2, fcz); scene.add(fLight); torches.push(fLight);
+
+  // Речной свет по центру
+  const riverGlow = new THREE.PointLight(0x2266cc, 2.8, riverHW * 14);
+  riverGlow.position.set(riverCX, 0.6, mh * 0.5); scene.add(riverGlow); torches.push(riverGlow);
+
+  // Солнечный свет по сторонам (зеленоватый)
+  const sunL = new THREE.PointLight(0x88cc55, 1.4, mw * 0.65);
+  sunL.position.set(mw * 0.18, 3.5, mh * 0.5); scene.add(sunL); torches.push(sunL);
+  const sunR = new THREE.PointLight(0x55aa88, 1.4, mw * 0.65);
+  sunR.position.set(mw * 0.82, 3.5, mh * 0.5); scene.add(sunR); torches.push(sunR);
+
+  // Маленькие огни по углам
+  [[0.06,0.06],[0.94,0.06],[0.06,0.94],[0.94,0.94]].forEach(([fx,fz]) => {
+    const l = new THREE.PointLight(0xffcc44, 1.8, mw * 0.28);
+    l.position.set(mw * fx, 1.2, mh * fz); scene.add(l); torches.push(l);
+  });
 }
 
 // ── Characters ────────────────────────────────────────────────────────────────
@@ -400,7 +461,7 @@ function getOrCreateChar(id, team) {
 
   // Кольцо команды на земле
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.32, 0.46, 24),
+    new THREE.RingGeometry(1.10, 1.52, 28),
     new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
   );
   ring.rotation.x = -Math.PI / 2;
@@ -415,7 +476,7 @@ function getOrCreateChar(id, team) {
   if (model) {
     const box  = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
-    const s    = size.y > 0.001 ? 0.85 / size.y : 0.45;
+    const s    = size.y > 0.001 ? 3.40 / size.y : 1.80;
     model.scale.setScalar(s);
     const box2 = new THREE.Box3().setFromObject(model);
     model.position.y = -box2.min.y;
@@ -452,24 +513,26 @@ function removeChar(id) {
 
 // ── Hook geometry ─────────────────────────────────────────────────────────────
 function makeHookHead() {
-  const mat = new THREE.MeshStandardMaterial({ color: 0xccccdd, metalness: 0.95, roughness: 0.07 });
-  // J-shape curve in XZ plane: shank along -Z, bend opens toward -X
+  const mat = new THREE.MeshStandardMaterial({ color: 0xb8c0cc, metalness: 0.97, roughness: 0.05 });
+  // J-shape curve — scaled up 2.8x for visibility
+  const sc = 2.8;
   const pts = [
-    new THREE.Vector3(0,     0, -0.18),
-    new THREE.Vector3(0,     0, -0.08),
-    new THREE.Vector3(0,     0,  0.00),
-    new THREE.Vector3(-0.03, 0,  0.05),
-    new THREE.Vector3(-0.07, 0,  0.05),
-    new THREE.Vector3(-0.10, 0,  0.01),
-    new THREE.Vector3(-0.10, 0, -0.05),
-    new THREE.Vector3(-0.07, 0, -0.08),
-    new THREE.Vector3(-0.03, 0, -0.06),
+    new THREE.Vector3(0,          0, -0.18 * sc),
+    new THREE.Vector3(0,          0, -0.08 * sc),
+    new THREE.Vector3(0,          0,  0.00),
+    new THREE.Vector3(-0.03 * sc, 0,  0.05 * sc),
+    new THREE.Vector3(-0.07 * sc, 0,  0.05 * sc),
+    new THREE.Vector3(-0.10 * sc, 0,  0.01 * sc),
+    new THREE.Vector3(-0.10 * sc, 0, -0.05 * sc),
+    new THREE.Vector3(-0.07 * sc, 0, -0.08 * sc),
+    new THREE.Vector3(-0.03 * sc, 0, -0.06 * sc),
   ];
-  const geo  = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.014, 8, false);
+  const geo  = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.036, 8, false);
   const hook = new THREE.Mesh(geo, mat);
-  const eye  = new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.008, 6, 12), mat);
+  hook.castShadow = true;
+  const eye  = new THREE.Mesh(new THREE.TorusGeometry(0.022 * sc, 0.010 * sc, 6, 12), mat);
   eye.rotation.x = Math.PI / 2;
-  eye.position.set(0, 0, -0.22);
+  eye.position.set(0, 0, -0.22 * sc);
   const g = new THREE.Group();
   g.add(hook); g.add(eye);
   return g;
@@ -477,7 +540,7 @@ function makeHookHead() {
 
 function makeRope() {
   return new THREE.Mesh(
-    new THREE.CylinderGeometry(0.022, 0.022, 1, 6),
+    new THREE.CylinderGeometry(0.034, 0.034, 1, 6),
     new THREE.MeshLambertMaterial({ color: 0x7a5520 })
   );
 }
@@ -507,8 +570,8 @@ function upsertHook(hook, owner) {
     hookLines.set(hook.ownerId, { rope, head });
   }
   const { rope, head } = hookLines.get(hook.ownerId);
-  const from = sw(owner.x, owner.y, 0.55);
-  const to   = sw(hook.x,  hook.y,  0.55);
+  const from = sw(owner.x, owner.y, 0.80);
+  const to   = sw(hook.x,  hook.y,  0.80);
   positionRope(rope, from, to);
   orientHookHead(head, from, to);
 }
@@ -527,18 +590,16 @@ let aimObjects = null;
 function buildAimObjects() {
   const ao = {};
 
-  // Dashed line player → target (flat on floor)
-  const lineMat = new THREE.LineDashedMaterial({
-    color: 0xff4422, transparent: true, opacity: 0.80,
-    dashSize: 0.24, gapSize: 0.10,
+  // Flat ribbon on floor (BoxGeometry — actually thick, visible at any angle)
+  const ribbonMat = new THREE.MeshBasicMaterial({
+    color: 0xff4422, transparent: true, opacity: 0.68,
+    depthWrite: false, side: THREE.DoubleSide,
   });
-  const lineGeo = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(), new THREE.Vector3(1, 0, 0),
-  ]);
-  ao.line = new THREE.Line(lineGeo, lineMat);
-  ao.line.renderOrder = 10;
-  ao.line.visible = false;
-  scene.add(ao.line);
+  // BoxGeometry(1, h, w): length=1 along X (will be scaled), height=0.015 (flat), width=0.14
+  ao.ribbon = new THREE.Mesh(new THREE.BoxGeometry(1, 0.015, 0.14), ribbonMat);
+  ao.ribbon.renderOrder = 10;
+  ao.ribbon.visible = false;
+  scene.add(ao.ribbon);
 
   // Crosshair group at target position
   const cg = new THREE.Group();
@@ -584,15 +645,24 @@ function showAimIndicators(fromW, toW) {
   if (!aimObjects) aimObjects = buildAimObjects();
   const ao = aimObjects;
 
-  const from = new THREE.Vector3(fromW.x, 0.08, fromW.z);
-  const to   = new THREE.Vector3(toW.x,   0.08, toW.z);
+  const dir = new THREE.Vector3(toW.x - fromW.x, 0, toW.z - fromW.z);
+  const len = dir.length();
 
-  ao.line.visible = true;
-  ao.line.geometry.setFromPoints([from, to]);
-  ao.line.computeLineDistances();
+  if (len > 0.01) {
+    ao.ribbon.visible = true;
+    ao.ribbon.position.set((fromW.x + toW.x) / 2, 0.03, (fromW.z + toW.z) / 2);
+    ao.ribbon.scale.set(len, 1, 1);
+    // Orient local X (long axis) toward target using Y-axis rotation only
+    ao.ribbon.quaternion.setFromUnitVectors(
+      new THREE.Vector3(1, 0, 0),
+      dir.clone().normalize()
+    );
+  } else {
+    ao.ribbon.visible = false;
+  }
 
   ao.crosshair.visible = true;
-  ao.crosshair.position.set(to.x, 0, to.z);
+  ao.crosshair.position.set(toW.x, 0, toW.z);
   ao.tick += 0.06;
   ao.crosshair.scale.setScalar(1 + Math.sin(ao.tick * 4) * 0.12);
   ao.crosshair.rotation.y = ao.tick * 0.5;
@@ -600,7 +670,7 @@ function showAimIndicators(fromW, toW) {
 
 function hideAimIndicators() {
   if (!aimObjects) return;
-  aimObjects.line.visible = false;
+  aimObjects.ribbon.visible = false;
   aimObjects.crosshair.visible = false;
 }
 
@@ -704,12 +774,22 @@ function connectSocket() {
 
   socket.on('state', d => {
     if (gameState !== 'playing') return;
+    const prevMe = sPlayers.find(p => p.id === myId);
     sPlayers = d.players;
     const live = new Set(d.hooks.map(h => h.ownerId));
     for (const id of hookLines.keys()) if (!live.has(id)) removeHookLine(id);
     sHooks = d.hooks;
     const me = d.players.find(p => p.id === myId);
-    if (me) myHookCooldown = me.hookCooldown ?? 0;
+    if (me) {
+      myHookCooldown = me.hookCooldown ?? 0;
+      // Screen shake when hit
+      if (me.hitFlash > 0 && (!prevMe || prevMe.hitFlash === 0)) triggerShake(380);
+      // Dead overlay
+      const deadEl = document.getElementById('dead-overlay');
+      if (!me.alive) deadEl.classList.add('show'); else deadEl.classList.remove('show');
+    }
+    // Kill feed
+    if (d.kills?.length) d.kills.forEach(addKillFeed);
   });
 
   socket.on('player_left', d => {
@@ -719,13 +799,13 @@ function connectSocket() {
 
   socket.on('game_over', d => {
     gameState = 'gameover';
+    document.getElementById('dead-overlay').classList.remove('show');
     const won = d.winner === myTeam, draw = d.winner === -1;
     const title = document.getElementById('gameover-title');
     title.textContent = draw ? 'НИЧЬЯ' : won ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ';
     title.style.color = draw ? '#f39c12' : won ? '#f1c40f' : '#e74c3c';
     document.getElementById('gameover-sub').textContent = draw ? '' : `${TEAM_NAMES[d.winner]} побеждают`;
     showScreen('gameover');
-    setTimeout(() => { cleanupGame(); showScreen('menu'); }, 4000);
   });
 
   socket.on('disconnect', () => {
@@ -743,6 +823,9 @@ function cleanupGame() {
   hideAimIndicators();
   torches.forEach(l => scene.remove(l));
   torches.length = 0;
+  shakeUntil = 0; document.body.style.transform = '';
+  document.getElementById('dead-overlay').classList.remove('show');
+  document.getElementById('kill-feed').innerHTML = '';
 }
 
 // ── Dual joystick ─────────────────────────────────────────────────────────────
@@ -853,6 +936,32 @@ canvas.addEventListener('mousemove', e => {
   if (gc && me) showAimIndicators(sw(me.x, me.y, 0), sw(gc.x, gc.y, 0));
 });
 
+// ── Screen shake ──────────────────────────────────────────────────────────────
+let shakeUntil = 0;
+function triggerShake(ms = 320) { shakeUntil = Date.now() + ms; }
+function applyShake() {
+  if (Date.now() >= shakeUntil) { document.body.style.transform = ''; return; }
+  const x = (Math.random() - 0.5) * 14;
+  const y = (Math.random() - 0.5) * 14;
+  document.body.style.transform = `translate(${x}px,${y}px)`;
+}
+
+// ── Kill feed ─────────────────────────────────────────────────────────────────
+function addKillFeed(kill) {
+  const feed = document.getElementById('kill-feed');
+  const el   = document.createElement('div');
+  el.className = 'kill-entry';
+  el.style.borderColor = TEAM_HEX[kill.killerTeam];
+  el.innerHTML =
+    `<span style="color:${TEAM_HEX[kill.killerTeam]}">${kill.killerName}</span>` +
+    ` <span style="color:#aaa;font-size:11px">⚓</span> ` +
+    `<span style="color:${TEAM_HEX[kill.victimTeam]}">${kill.victimName}</span>`;
+  feed.prepend(el);
+  setTimeout(() => { el.style.opacity = '0'; }, 3000);
+  setTimeout(() => { el.remove(); }, 4200);
+  while (feed.children.length > 5) feed.lastChild.remove();
+}
+
 // ── Joystick canvas ───────────────────────────────────────────────────────────
 const joyCanvas = document.getElementById('joy-canvas');
 const joyCtx    = joyCanvas.getContext('2d');
@@ -900,32 +1009,6 @@ function drawOneJoystick(base, joy, isAim) {
     }
   }
 
-  // Aim direction arrow extending from thumb (right joystick only)
-  if (isAim && joy.active && (Math.abs(joy.nx) > 0.05 || Math.abs(joy.ny) > 0.05)) {
-    const arrowEnd = JR * 3.2;
-    joyCtx.save();
-    joyCtx.beginPath();
-    joyCtx.moveTo(tx, ty);
-    joyCtx.lineTo(base.x + joy.nx * arrowEnd, base.y + joy.ny * arrowEnd);
-    joyCtx.strokeStyle = 'rgba(231,76,60,0.60)';
-    joyCtx.lineWidth = 2.5;
-    joyCtx.setLineDash([9, 6]);
-    joyCtx.stroke();
-    // Arrowhead
-    const ax = base.x + joy.nx * arrowEnd, ay = base.y + joy.ny * arrowEnd;
-    const angle = Math.atan2(joy.ny, joy.nx);
-    joyCtx.setLineDash([]);
-    joyCtx.beginPath();
-    joyCtx.moveTo(ax, ay);
-    joyCtx.lineTo(ax - Math.cos(angle - 0.45) * 14, ay - Math.sin(angle - 0.45) * 14);
-    joyCtx.moveTo(ax, ay);
-    joyCtx.lineTo(ax - Math.cos(angle + 0.45) * 14, ay - Math.sin(angle + 0.45) * 14);
-    joyCtx.strokeStyle = 'rgba(231,76,60,0.85)';
-    joyCtx.lineWidth = 2.5;
-    joyCtx.stroke();
-    joyCtx.restore();
-  }
-
   // Thumb
   if (joy.active) {
     joyCtx.beginPath();
@@ -935,8 +1018,52 @@ function drawOneJoystick(base, joy, isAim) {
   }
 }
 
+function projectToScreen(wx, wy, wz) {
+  const v = new THREE.Vector3(wx, wy, wz).project(camera);
+  return {
+    x: (v.x + 1) / 2 * window.innerWidth,
+    y: (-v.y + 1) / 2 * window.innerHeight,
+    visible: v.z < 1,
+  };
+}
+
+function drawNameLabels() {
+  const playing = gameState === 'playing' || gameState === 'countdown';
+  if (!playing) return;
+  for (const p of sPlayers) {
+    const sp = projectToScreen(p.x * S, 4.0, p.y * S);
+    if (!sp.visible) continue;
+
+    const isMe    = p.id === myId;
+    const nameCol = TEAM_HEX[p.team];
+    const barW    = 56, barH = 5;
+    const hpFrac  = Math.max(0, p.hp) / 2;
+    const baseY   = sp.y;
+
+    // HP bar background
+    joyCtx.fillStyle = 'rgba(0,0,0,0.65)';
+    joyCtx.fillRect(sp.x - barW / 2 - 1, baseY - 2, barW + 2, barH + 2);
+    joyCtx.fillStyle = '#2a2a2a';
+    joyCtx.fillRect(sp.x - barW / 2, baseY - 1, barW, barH);
+    joyCtx.fillStyle = p.hp > 1 ? '#2ecc71' : '#e74c3c';
+    joyCtx.fillRect(sp.x - barW / 2, baseY - 1, barW * hpFrac, barH);
+
+    // Name label
+    joyCtx.font = `${isMe ? 'bold ' : ''}${isMe ? 13 : 12}px Arial`;
+    joyCtx.textAlign    = 'center';
+    joyCtx.textBaseline = 'bottom';
+    const nameY = baseY - 5;
+    // Shadow
+    joyCtx.fillStyle = 'rgba(0,0,0,0.8)';
+    joyCtx.fillText(p.name, sp.x + 1, nameY + 1);
+    joyCtx.fillStyle = p.alive ? nameCol : '#555';
+    joyCtx.fillText(p.name, sp.x, nameY);
+  }
+}
+
 function drawJoysticks() {
   joyCtx.clearRect(0, 0, joyCanvas.width, joyCanvas.height);
+  drawNameLabels();
   if (gameState !== 'playing') return;
   drawOneJoystick(moveBase, moveJoy, false);
   drawOneJoystick(aimBase,  aimJoy,  true);
@@ -1066,6 +1193,7 @@ function animate() {
   const delta = Math.min((now - _lastTime) / 1000, 0.1); // cap at 100ms
   _lastTime = now;
 
+  applyShake();
   if (gameState === 'playing' || gameState === 'countdown') {
     updatePlayers(delta);
     updateHooks();
@@ -1073,13 +1201,13 @@ function animate() {
   }
   if (gameState === 'playing') {
     updateAimFromJoystick();
-    drawJoysticks();
     const me = sPlayers.find(p => p.id === myId);
     if (me) {
       document.getElementById('hud-hp').textContent =
         '❤'.repeat(me.hp) + '🖤'.repeat(2 - me.hp);
     }
   }
+  drawJoysticks();
   renderer.render(scene, camera);
 }
 
@@ -1104,6 +1232,12 @@ document.getElementById('btn-pvp').addEventListener('click', () => {
 });
 document.getElementById('btn-bots').addEventListener('click', () => {
   mode = 'bots'; showScreen('search'); connectSocket();
+});
+document.getElementById('btn-rematch').addEventListener('click', () => {
+  cleanupGame(); mode = 'bots'; showScreen('search'); connectSocket();
+});
+document.getElementById('btn-menu').addEventListener('click', () => {
+  cleanupGame(); showScreen('menu');
 });
 
 showScreen('menu');
