@@ -11,9 +11,8 @@ const TEAM_NAMES   = ['Красные', 'Синие'];
 const CHAR_LETTERS = 'abcdefghijklmnopqr'.split('');
 const HOOK_COOLDOWN_MS = 6000;
 
-// VIEW_SIZE = 6 fills the screen exactly for 16:9 map at our camera angle
-// (calculated: y_cam half-range ≈ 5.88 for 16×9 world at 45° iso)
-const VIEW_SIZE = 6;
+// VIEW_SIZE is computed dynamically in positionCamera() based on actual map size
+let VIEW_SIZE = 6;
 
 // ── Telegram ──────────────────────────────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
@@ -33,8 +32,8 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 // ── Scene ─────────────────────────────────────────────────────────────────────
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x110008);
-scene.fog = new THREE.FogExp2(0x110008, 0.04);
+scene.background = new THREE.Color(0x1a0010);
+// No fog — isometric view shows the whole scene from far away; fog kills visibility
 
 // ── Camera ────────────────────────────────────────────────────────────────────
 let aspect = window.innerWidth / window.innerHeight;
@@ -44,28 +43,48 @@ const camera = new THREE.OrthographicCamera(
 
 function positionCamera() {
   const mcx = MAP_W * S / 2, mcz = MAP_H * S / 2;
-  camera.position.set(mcx + 14, 22, mcz + 18);
+  // Proportional offset — preserves the same ~45° isometric angle at any map size
+  const offX = mcx * 1.75;
+  const offY = mcx * 2.75;
+  const offZ = mcx * 2.25;
+  camera.position.set(mcx + offX, offY, mcz + offZ);
   camera.lookAt(mcx, 0, mcz);
+  // Auto-fit VIEW_SIZE: formula derived from projecting map corner (0,0) onto
+  // the camera's up-axis with the proportional offset above (+0.3 safety margin)
+  VIEW_SIZE = mcx * 0.427 + mcz * 0.548 + 0.3;
+  camera.top    =  VIEW_SIZE;
+  camera.bottom = -VIEW_SIZE;
+  camera.left   = -VIEW_SIZE * aspect;
+  camera.right  =  VIEW_SIZE * aspect;
+  camera.updateProjectionMatrix();
 }
 positionCamera();
 
 // ── Lighting ──────────────────────────────────────────────────────────────────
-// Sky / ground fill
-const hemi = new THREE.HemisphereLight(0xfff0d0, 0x3a1800, 0.7);
+// Strong ambient so no face is ever fully dark
+scene.add(new THREE.AmbientLight(0xfff0e0, 1.4));
+
+// Sky / ground hemisphere
+const hemi = new THREE.HemisphereLight(0xffe8a0, 0x804820, 1.0);
 scene.add(hemi);
 
-// Key light (warm sun, casts shadows)
-const sun = new THREE.DirectionalLight(0xffeedd, 1.3);
+// Key directional (casts shadows)
+const sun = new THREE.DirectionalLight(0xffffff, 1.8);
 sun.position.set(10, 20, 10);
 sun.castShadow = true;
 Object.assign(sun.shadow.mapSize, { width: 2048, height: 2048 });
-Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 80 });
+Object.assign(sun.shadow.camera, { left: -25, right: 25, top: 25, bottom: -25, near: 1, far: 90 });
 scene.add(sun);
 
-// Fill light (cool, from opposite side)
-const fill = new THREE.DirectionalLight(0xaaccff, 0.4);
-fill.position.set(-8, 8, -8);
+// Front fill (warm, opposite side)
+const fill = new THREE.DirectionalLight(0xffd0a0, 0.9);
+fill.position.set(-5, 12, -5);
 scene.add(fill);
+
+// Overhead fill — ensures tops of characters are well-lit
+const over = new THREE.DirectionalLight(0xffeedd, 0.7);
+over.position.set(0, 20, 0);
+scene.add(over);
 
 // Animated torches at map corners
 const torches = [];
@@ -109,7 +128,7 @@ function buildMap(obstacles) {
   // Floor
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(mw, mh, 32, 18),
-    new THREE.MeshLambertMaterial({ color: 0x7a4520 })
+    new THREE.MeshLambertMaterial({ color: 0xb06030 })
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(mw / 2, 0, mh / 2);
@@ -222,7 +241,7 @@ async function getOrCreateChar(id, team) {
       c.material.transparent = false;
       c.material.depthWrite  = true;
       c.material.emissive    = new THREE.Color(color);
-      c.material.emissiveIntensity = 0.12;
+      c.material.emissiveIntensity = 0.35;
     });
     group.add(model);
   } else {
@@ -693,7 +712,7 @@ async function updatePlayers() {
         c.material.transparent = true; c.material.opacity = 0.3; c.material.depthWrite = false;
       } else {
         c.material.transparent = false; c.material.opacity = 1; c.material.depthWrite = true;
-        c.material.emissiveIntensity = p.hitFlash > 0 ? 0.9 : (p.id === myId ? 0.22 : 0.12);
+        c.material.emissiveIntensity = p.hitFlash > 0 ? 1.0 : (p.id === myId ? 0.55 : 0.35);
       }
     });
   }
@@ -742,8 +761,11 @@ window.addEventListener('resize', () => {
   const w = window.innerWidth, h = window.innerHeight;
   aspect = w / h;
   renderer.setSize(w, h);
+  // Recompute full camera frustum (VIEW_SIZE stays, only width changes with aspect)
   camera.left   = -VIEW_SIZE * aspect;
   camera.right  =  VIEW_SIZE * aspect;
+  camera.top    =  VIEW_SIZE;
+  camera.bottom = -VIEW_SIZE;
   camera.updateProjectionMatrix();
   resizeJoyCanvas();
   updateJoyBases();
