@@ -49,15 +49,12 @@ const camera = new THREE.OrthographicCamera(
 
 function positionCamera() {
   const mcx = MAP_W * S / 2, mcz = MAP_H * S / 2;
-  // Proportional offset — preserves the same ~45° isometric angle at any map size
-  const offX = mcx * 1.75;
-  const offY = mcx * 2.75;
-  const offZ = mcx * 2.25;
-  camera.position.set(mcx + offX, offY, mcz + offZ);
+  // Top-down view: camera centred on X, slight forward tilt (like a football game)
+  // River runs as a vertical stripe in the centre of the screen
+  camera.position.set(mcx, mcz * 2.5, mcz + mcz * 0.55);
   camera.lookAt(mcx, 0, mcz);
-  // Auto-fit VIEW_SIZE: formula derived from projecting map corner (0,0) onto
-  // the camera's up-axis with the proportional offset above (+0.3 safety margin)
-  VIEW_SIZE = mcx * 0.250 + mcz * 0.322 + 0.1;
+  // VIEW_SIZE fits full map height; aspect ensures width fits too
+  VIEW_SIZE = mcz * 1.20;
   camera.top    =  VIEW_SIZE;
   camera.bottom = -VIEW_SIZE;
   camera.left   = -VIEW_SIZE * aspect;
