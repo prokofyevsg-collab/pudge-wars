@@ -25,6 +25,12 @@ if (tg) {
 }
 const tgUser = tg?.initDataUnsafe?.user ?? null;
 
+const clientId = localStorage.getItem('pwClientId') ?? (() => {
+  const id = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  localStorage.setItem('pwClientId', id);
+  return id;
+})();
+
 // ── Landscape lock ────────────────────────────────────────────────────────────
 try { screen.orientation.lock('landscape'); } catch (_) {}
 
@@ -784,9 +790,9 @@ function connectSocket() {
   socket.on('connect', () => {
     myId = socket.id;
     if (mode === 'bots') {
-      socket.emit('play_vs_bots', { user: tgUser });
+      socket.emit('play_vs_bots', { user: tgUser, clientId });
     } else {
-      socket.emit('join_lobby', { user: tgUser });
+      socket.emit('join_lobby', { user: tgUser, clientId });
     }
   });
 
@@ -860,6 +866,7 @@ function connectSocket() {
     title.style.color = draw ? '#f39c12' : won ? '#f1c40f' : '#e74c3c';
     document.getElementById('gameover-sub').textContent = draw ? '' : `${TEAM_NAMES[d.winner]} побеждают`;
     showScreen('gameover');
+    loadLeaderboard();
   });
 
   socket.on('disconnect', () => {
@@ -1315,6 +1322,28 @@ function renderLobbySlots(state) {
   if (startBtn) startBtn.style.display = allFilled ? 'block' : 'none';
 }
 
+// ── Leaderboard ───────────────────────────────────────────────────────────────
+async function loadLeaderboard() {
+  try {
+    const rows = await fetch('/leaderboard').then(r => r.json());
+    const tbody = document.getElementById('lb-body');
+    if (!tbody) return;
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:#444;padding:8px 0">Пока пусто</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map((r, i) =>
+      `<tr>
+        <td>${i + 1}</td>
+        <td>${r.name}</td>
+        <td>${r.kills}</td>
+        <td>${r.hpPickups}</td>
+        <td>${r.wins}</td>
+      </tr>`
+    ).join('');
+  } catch (_) {}
+}
+
 // ── Menu ──────────────────────────────────────────────────────────────────────
 document.getElementById('btn-pvp').addEventListener('click', () => {
   mode = 'lobby'; gameState = 'lobby';
@@ -1340,4 +1369,5 @@ document.getElementById('btn-leave-lobby').addEventListener('click', () => {
 });
 
 showScreen('menu');
+loadLeaderboard();
 animate();

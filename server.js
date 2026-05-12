@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const fs   = require('fs');
 
 process.on('uncaughtException', err => console.error('[uncaughtException]', err));
 process.on('unhandledRejection', err => console.error('[unhandledRejection]', err));
@@ -12,6 +13,32 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(express.static(path.join(__dirname, 'client')));
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
+
+// --- Stats ---
+const STATS_FILE = path.join(__dirname, 'stats.json');
+let statsDB = {};
+try { statsDB = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8')); } catch (_) {}
+
+function saveStats() {
+  try { fs.writeFileSync(STATS_FILE, JSON.stringify(statsDB)); } catch (e) { console.error('[stats]', e); }
+}
+function updatePlayerStats(statsId, name, kills, hpPickups, won) {
+  if (!statsId) return;
+  if (!statsDB[statsId]) statsDB[statsId] = { name, kills: 0, hpPickups: 0, wins: 0, games: 0 };
+  const s = statsDB[statsId];
+  s.name = name;
+  s.kills     += kills;
+  s.hpPickups += hpPickups;
+  if (won) s.wins++;
+  s.games++;
+}
+
+app.get('/leaderboard', (_req, res) => {
+  const rows = Object.values(statsDB)
+    .sort((a, b) => b.kills - a.kills || b.wins - a.wins)
+    .slice(0, 10);
+  res.json(rows);
+});
 
 // --- Constants ---
 const TICK_RATE = 30;
@@ -122,9 +149,11 @@ class GameRoom {
     this.pendingPickups = [];
     this.heart = null;
     this.heartTimer = 15; // seconds until first spawn
+    this.killsPerPlayer   = new Map();
+    this.pickupsPerPlayer = new Map();
   }
 
-  addPlayer(socketId, user) {
+  addPlayer(socketId, user, statsId = null) {
     const idx = this.players.size;
     const team = idx % 2;
     const spawn = SPAWNS[idx];
@@ -139,6 +168,7 @@ class GameRoom {
       hp: 2,
       alive: true,
       hookCooldown: 0,
+      statsId,
     });
   }
 
@@ -229,6 +259,7 @@ class GameRoom {
           if (hook.heartCaught) {
             owner.hp = Math.min(owner.hp + 1, 3);
             this.pendingPickups.push({ playerName: owner.name, playerTeam: owner.team });
+            this.pickupsPerPlayer.set(ownerId, (this.pickupsPerPlayer.get(ownerId) || 0) + 1);
             this.heartTimer = 20;
           }
           this.hooks.delete(ownerId);
@@ -289,6 +320,7 @@ class GameRoom {
                   victimName: target.name,
                   victimTeam: target.team,
                 });
+                this.killsPerPlayer.set(ownerId, (this.killsPerPlayer.get(ownerId) || 0) + 1);
               } else {
                 hook.caughtId = targetId;
                 target.caughtByHook = true;
@@ -329,6 +361,7 @@ class GameRoom {
         if (dist(p.x, p.y, this.heart.x, this.heart.y) < PLAYER_RADIUS + 35) {
           p.hp = Math.min(p.hp + 1, 3);
           this.pendingPickups.push({ playerName: p.name, playerTeam: p.team });
+          this.pickupsPerPlayer.set(p.id, (this.pickupsPerPlayer.get(p.id) || 0) + 1);
           this.heart = null;
           this.heartTimer = 20;
           break;
@@ -525,6 +558,16 @@ function startGameLoop(room, roomId) {
       if (result) {
         clearInterval(gameLoop);
         room.state = 'finished';
+        for (const [pid, p] of room.players) {
+          if (p.isBot) continue;
+          updatePlayerStats(
+            p.statsId, p.name,
+            room.killsPerPlayer.get(pid) || 0,
+            room.pickupsPerPlayer.get(pid) || 0,
+            result.winner === p.team,
+          );
+        }
+        saveStats();
         io.to(roomId).emit('game_over', result);
         rooms.delete(roomId);
       }
@@ -570,8 +613,9 @@ io.on('connection', (socket) => {
     const roomId = `bot_${Date.now()}_${socket.id.slice(0, 4)}`;
     const room = new GameRoom(roomId);
 
-    // Real player
-    room.addPlayer(socket.id, data?.user);
+    const statsId = data?.user?.id?.toString() || data?.clientId || socket.id;
+    socket.data.statsId = statsId;
+    room.addPlayer(socket.id, data?.user, statsId);
 
     // 3 bots (teammate + 2 enemies)
     const botDefs = [
@@ -603,6 +647,8 @@ io.on('connection', (socket) => {
   socket.on('join_lobby', (data) => {
     if (socket.data.lobbyId) leaveLobby(socket);
     const name = data?.user?.first_name || 'Игрок';
+    const statsId = data?.user?.id?.toString() || data?.clientId || socket.id;
+    socket.data.statsId = statsId;
     const lobby = getOrCreateLobby(socket.id);
     lobby.addHuman(socket.id, name);
     socket.data.lobbyId = lobby.id;
@@ -647,6 +693,7 @@ io.on('connection', (socket) => {
           id: slot.socketId, name: slot.name,
           x: SPAWNS[i].x, y: SPAWNS[i].y, vx: 0, vy: 0,
           team: slot.team, hp: 2, alive: true, hookCooldown: 0,
+          statsId: sock.data.statsId || null,
         });
         sock.data.lobbyId = null;
         humanSockets.push(sock);

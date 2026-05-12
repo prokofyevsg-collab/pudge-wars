@@ -116,6 +116,17 @@
     #rotate-overlay p { font-size: 16px; color: #aaa; text-align: center; padding: 0 30px; }
     @keyframes spin { from { transform: rotate(-30deg); } to { transform: rotate(30deg); } }
     @media (orientation: portrait) { #rotate-overlay { display: flex; } }
+
+    /* ─ Leaderboard ─ */
+    #lb-wrap { width: 270px; margin-top: 4px; }
+    #lb-wrap .lb-title { color: #777; font-size: 10px; letter-spacing: 1.5px; text-align: center; margin-bottom: 5px; }
+    #lb-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    #lb-table th { color: #555; font-weight: normal; padding: 2px 5px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.07); }
+    #lb-table th:nth-child(2) { text-align: left; }
+    #lb-table td { padding: 3px 5px; text-align: center; color: #aaa; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    #lb-table td:nth-child(2) { text-align: left; color: #ddd; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #lb-table tr:first-child td { color: #f39c12; }
+    #lb-table tr:first-child td:nth-child(2) { color: #f5c842; }
   </style>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
@@ -135,6 +146,17 @@
       </div>
       <button class="btn" id="btn-pvp">НАЙТИ ИГРУ (2v2)</button>
       <button class="btn btn-green" id="btn-bots">ИГРАТЬ vs БОТЫ</button>
+      <div id="lb-wrap">
+        <div class="lb-title">🏆 &nbsp;ТАБЛИЦА ЛИДЕРОВ&nbsp; 🏆</div>
+        <table id="lb-table">
+          <thead><tr>
+            <th>#</th><th>Игрок</th><th>⚓</th><th>❤</th><th>🏆</th>
+          </tr></thead>
+          <tbody id="lb-body">
+            <tr><td colspan="5" style="color:#444;padding:8px 0">—</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Lobby -->
