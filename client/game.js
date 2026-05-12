@@ -1,22 +1,26 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// ── Constants ────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 const SERVER_URL   = window.location.origin;
 const MAP_W = 800, MAP_H = 600;
-const S = 0.01;          // server→world scale: 800→8, 600→6
+const S = 0.01;
 const TEAM_COLORS  = [0xe74c3c, 0x2980b9];
 const TEAM_HEX     = ['#e74c3c', '#2980b9'];
 const TEAM_NAMES   = ['Красные', 'Синие'];
 const CHAR_LETTERS = 'abcdefghijklmnopqr'.split('');
-const VIEW_SIZE    = 7;  // orthographic half-height in world units
+const VIEW_SIZE    = 7;
+const HOOK_COOLDOWN_MS = 6000;
 
-// ── Telegram ─────────────────────────────────────────────────────────────────
+// ── Telegram ──────────────────────────────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const tgUser = tg?.initDataUnsafe?.user ?? null;
 
-// ── Renderer ─────────────────────────────────────────────────────────────────
+// ── Lock landscape ────────────────────────────────────────────────────────────
+try { screen.orientation.lock('landscape'); } catch (_) {}
+
+// ── Renderer ──────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -29,18 +33,17 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x110008);
 scene.fog = new THREE.FogExp2(0x110008, 0.07);
 
-// ── Camera (isometric orthographic) ──────────────────────────────────────────
-const aspect = window.innerWidth / window.innerHeight;
+// ── Camera ────────────────────────────────────────────────────────────────────
+let aspect = window.innerWidth / window.innerHeight;
 const camera = new THREE.OrthographicCamera(
   -VIEW_SIZE * aspect, VIEW_SIZE * aspect, VIEW_SIZE, -VIEW_SIZE, 0.1, 100
 );
-// Diablo-style: above and behind map center
 const MCX = MAP_W * S / 2, MCZ = MAP_H * S / 2;
 camera.position.set(MCX + 7, 11, MCZ + 9);
 camera.lookAt(MCX, 0, MCZ);
 
 // ── Lighting ──────────────────────────────────────────────────────────────────
-scene.add(new THREE.AmbientLight(0xffe4cc, 0.55));
+scene.add(new THREE.AmbientLight(0xffe4cc, 0.6));
 
 const sun = new THREE.DirectionalLight(0xfff5e0, 1.1);
 sun.position.set(8, 16, 8);
@@ -49,7 +52,6 @@ Object.assign(sun.shadow.mapSize, { width: 1024, height: 1024 });
 Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 1, far: 50 });
 scene.add(sun);
 
-// Atmospheric torches
 const torch = (x, z) => {
   const l = new THREE.PointLight(0xff7700, 2.0, 7);
   l.position.set(x, 1.2, z);
@@ -63,7 +65,7 @@ const torches = [
 
 // ── GLB loader ────────────────────────────────────────────────────────────────
 const gltfLoader = new GLTFLoader();
-const modelCache = new Map(); // letter → THREE.Group
+const modelCache = new Map();
 
 function loadChar(letter) {
   if (modelCache.has(letter)) return Promise.resolve(modelCache.get(letter));
@@ -77,20 +79,16 @@ function loadChar(letter) {
     }, undefined, () => resolve(null));
   });
 }
-
-// Preload first few models
 ['a', 'b', 'c', 'd'].forEach(loadChar);
 
 // ── Map ───────────────────────────────────────────────────────────────────────
 let mapGroup = null;
 
 function buildMap(obstacles) {
-  if (mapGroup) { scene.remove(mapGroup); }
+  if (mapGroup) scene.remove(mapGroup);
   mapGroup = new THREE.Group();
-
   const mw = MAP_W * S, mh = MAP_H * S;
 
-  // Floor — warm stone
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(mw, mh, 20, 15),
     new THREE.MeshLambertMaterial({ color: 0x7a4520 })
@@ -100,45 +98,34 @@ function buildMap(obstacles) {
   floor.receiveShadow = true;
   mapGroup.add(floor);
 
-  // Floor tile pattern (subtle grid)
   const tileSize = 0.5;
-  const tileMat = new THREE.MeshBasicMaterial({ color: 0x5a3010, wireframe: true, transparent: true, opacity: 0.15 });
-  const tileGrid = new THREE.Mesh(new THREE.PlaneGeometry(mw, mh, mw / tileSize, mh / tileSize), tileMat);
+  const tileGrid = new THREE.Mesh(
+    new THREE.PlaneGeometry(mw, mh, mw / tileSize, mh / tileSize),
+    new THREE.MeshBasicMaterial({ color: 0x5a3010, wireframe: true, transparent: true, opacity: 0.13 })
+  );
   tileGrid.rotation.x = -Math.PI / 2;
   tileGrid.position.set(mw / 2, 0.003, mh / 2);
   mapGroup.add(tileGrid);
 
-  // Perimeter walls
   const wallMat  = new THREE.MeshLambertMaterial({ color: 0x5a4878 });
   const wallCapM = new THREE.MeshLambertMaterial({ color: 0x8a7aaa });
   const WH = 1.1, WT = 0.35;
-
-  const wallDefs = [
-    [mw / 2, WH / 2, -WT / 2,       mw + WT * 2, WH, WT],
-    [mw / 2, WH / 2, mh + WT / 2,   mw + WT * 2, WH, WT],
-    [-WT / 2, WH / 2, mh / 2,        WT, WH, mh],
-    [mw + WT / 2, WH / 2, mh / 2,    WT, WH, mh],
-  ];
-  wallDefs.forEach(([x, y, z, w, h, d]) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
-    mesh.position.set(x, y, z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mapGroup.add(mesh);
-    // Cap
+  [[mw / 2, WH / 2, -WT / 2, mw + WT * 2, WH, WT],
+   [mw / 2, WH / 2, mh + WT / 2, mw + WT * 2, WH, WT],
+   [-WT / 2, WH / 2, mh / 2, WT, WH, mh],
+   [mw + WT / 2, WH / 2, mh / 2, WT, WH, mh]].forEach(([x, y, z, w, h, d]) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+    m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
+    mapGroup.add(m);
     const cap = new THREE.Mesh(new THREE.BoxGeometry(w, 0.06, d), wallCapM);
     cap.position.set(x, h + 0.03, z);
     mapGroup.add(cap);
   });
 
-  // Obstacles — dungeon pillars/blocks
   const obsMat  = new THREE.MeshLambertMaterial({ color: 0x625278 });
   const obsCapM = new THREE.MeshLambertMaterial({ color: 0x9a88bc });
   obstacles.forEach(o => {
-    const ox = o.x * S, oz = o.y * S;
-    const ow = o.w * S, oh = o.h * S;
-    const BH = 0.85;
-    // Shadow decal
+    const ox = o.x * S, oz = o.y * S, ow = o.w * S, oh = o.h * S, BH = 0.85;
     const shadow = new THREE.Mesh(
       new THREE.PlaneGeometry(ow + 0.15, oh + 0.15),
       new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 })
@@ -146,13 +133,9 @@ function buildMap(obstacles) {
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.set(ox, 0.002, oz);
     mapGroup.add(shadow);
-    // Block
     const block = new THREE.Mesh(new THREE.BoxGeometry(ow, BH, oh), obsMat);
-    block.position.set(ox, BH / 2, oz);
-    block.castShadow = true;
-    block.receiveShadow = true;
+    block.position.set(ox, BH / 2, oz); block.castShadow = true; block.receiveShadow = true;
     mapGroup.add(block);
-    // Top cap
     const cap = new THREE.Mesh(new THREE.BoxGeometry(ow, 0.07, oh), obsCapM);
     cap.position.set(ox, BH + 0.035, oz);
     mapGroup.add(cap);
@@ -162,30 +145,25 @@ function buildMap(obstacles) {
 }
 
 // ── Character meshes ──────────────────────────────────────────────────────────
-const charEntries  = new Map(); // id → { group, ring }
-const playerSlots  = new Map(); // id → slotIndex
+const charEntries = new Map();
+const playerSlots = new Map();
 
-function makeFallbackBody(teamColor) {
+function makeFallbackBody(color) {
   const g = new THREE.Group();
   const body = new THREE.Mesh(
     new THREE.CapsuleGeometry(0.22, 0.45, 4, 8),
-    new THREE.MeshLambertMaterial({ color: teamColor })
+    new THREE.MeshLambertMaterial({ color })
   );
-  body.position.y = 0.5;
-  body.castShadow = true;
-  g.add(body);
-  // Head
+  body.position.y = 0.5; body.castShadow = true; g.add(body);
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(0.18, 8, 8),
-    new THREE.MeshLambertMaterial({ color: teamColor })
+    new THREE.MeshLambertMaterial({ color })
   );
-  head.position.y = 1.0;
-  head.castShadow = true;
-  g.add(head);
+  head.position.y = 1.0; head.castShadow = true; g.add(head);
   return g;
 }
 
-async function getOrCreateChar(id, team, name) {
+async function getOrCreateChar(id, team) {
   if (charEntries.has(id)) return charEntries.get(id);
 
   if (!playerSlots.has(id)) playerSlots.set(id, playerSlots.size);
@@ -195,7 +173,6 @@ async function getOrCreateChar(id, team, name) {
 
   const group = new THREE.Group();
 
-  // Team color ground ring
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.28, 0.40, 24),
     new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
@@ -204,30 +181,30 @@ async function getOrCreateChar(id, team, name) {
   ring.position.y = 0.005;
   group.add(ring);
 
-  // Load GLB character
   const baseModel = await loadChar(letter);
   if (baseModel) {
     const model = baseModel.clone();
-    // Scale to fit ~1 unit tall, rotate to face camera direction
     model.scale.setScalar(0.55);
-    model.rotation.y = Math.PI * 1.25; // face toward camera angle
+    model.rotation.y = Math.PI * 1.25;
     model.traverse(c => {
-      if (c.isMesh) {
-        c.castShadow = true;
-        c.receiveShadow = true;
-        c.material = c.material.clone();
-        c.material.emissive = new THREE.Color(color);
-        c.material.emissiveIntensity = 0.12;
-      }
+      if (!c.isMesh) return;
+      c.castShadow = true;
+      c.receiveShadow = true;
+      c.material = c.material.clone();
+      // alphaTest cuts transparent UV-map pixels without making the mesh transparent
+      c.material.alphaTest = 0.1;
+      c.material.transparent = false;
+      c.material.depthWrite = true;
+      c.material.emissive    = new THREE.Color(color);
+      c.material.emissiveIntensity = 0.12;
     });
     group.add(model);
   } else {
-    const fb = makeFallbackBody(color);
-    group.add(fb);
+    group.add(makeFallbackBody(color));
   }
 
   scene.add(group);
-  const entry = { group, ring, team, alive: true };
+  const entry = { group, ring, team };
   charEntries.set(id, entry);
   return entry;
 }
@@ -237,66 +214,170 @@ function removeChar(id) {
   if (e) { scene.remove(e.group); charEntries.delete(id); }
 }
 
-// ── Hook lines ────────────────────────────────────────────────────────────────
-const hookLines = new Map(); // ownerId → { line, tip }
+// ── Hook geometry ─────────────────────────────────────────────────────────────
+// J-shaped hook head built from a smooth CatmullRom curve in the XZ plane
+function makeHookHead() {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xccccdd, metalness: 0.95, roughness: 0.07 });
 
-function upsertHook(hook, ownerPlayer) {
-  const color = TEAM_COLORS[ownerPlayer.team];
-  if (!hookLines.has(hook.ownerId)) {
-    const pts = [new THREE.Vector3(), new THREE.Vector3()];
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color, linewidth: 2 }));
-    const tip  = new THREE.Mesh(
-      new THREE.SphereGeometry(0.07, 8, 8),
-      new THREE.MeshLambertMaterial({ color: 0xdddddd, emissive: 0xffffff, emissiveIntensity: 0.3 })
-    );
-    scene.add(line); scene.add(tip);
-    hookLines.set(hook.ownerId, { line, tip });
+  // Curve defined in XZ plane (Y=0), shank along -Z, bend opens toward -X
+  const pts = [
+    new THREE.Vector3(0,    0, -0.18), // eye end (trailing)
+    new THREE.Vector3(0,    0, -0.10),
+    new THREE.Vector3(0,    0,  0.00), // start of bend
+    new THREE.Vector3(-0.03, 0, 0.04),
+    new THREE.Vector3(-0.07, 0, 0.04),
+    new THREE.Vector3(-0.10, 0, 0.00),
+    new THREE.Vector3(-0.10, 0, -0.05),
+    new THREE.Vector3(-0.07, 0, -0.08), // barb / tip
+    new THREE.Vector3(-0.04, 0, -0.07),
+  ];
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const geo   = new THREE.TubeGeometry(curve, 24, 0.014, 8, false);
+  const hook  = new THREE.Mesh(geo, mat);
+
+  // Small ring/eye at the shank end
+  const eye = new THREE.Mesh(
+    new THREE.TorusGeometry(0.022, 0.008, 6, 12),
+    mat
+  );
+  eye.rotation.x = Math.PI / 2; // ring lies in XZ plane
+  eye.position.set(0, 0, -0.22);
+
+  const g = new THREE.Group();
+  g.add(hook);
+  g.add(eye);
+  return g;
+}
+
+// Rope: single cylinder scaled along its length each frame
+function makeRope() {
+  const geo = new THREE.CylinderGeometry(0.022, 0.022, 1, 6);
+  return new THREE.Mesh(
+    geo,
+    new THREE.MeshLambertMaterial({ color: 0x7a5520 })
+  );
+}
+
+function positionRope(rope, from, to) {
+  const dir = to.clone().sub(from);
+  const len = dir.length();
+  if (len < 0.01) { rope.visible = false; return; }
+  rope.visible = true;
+  rope.position.copy(from).addScaledVector(dir.clone().normalize(), len / 2);
+  rope.scale.set(1, len, 1);
+  rope.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+}
+
+function orientHookHead(head, from, to) {
+  const dir = to.clone().sub(from);
+  const len = dir.length();
+  head.position.copy(to);
+  if (len > 0.01) {
+    // Rotate around Y so local +Z faces direction of travel
+    head.rotation.y = Math.atan2(dir.x, dir.z);
   }
-  const { line, tip } = hookLines.get(hook.ownerId);
-  const op = sw(ownerPlayer.x, ownerPlayer.y, 0.55);
-  const hp = sw(hook.x, hook.y, 0.55);
-  line.geometry.setFromPoints([op, hp]);
-  line.geometry.attributes.position.needsUpdate = true;
-  tip.position.copy(hp);
+}
+
+// hookLines: ownerId → { rope, head }
+const hookLines = new Map();
+
+function upsertHook(hook, owner) {
+  if (!hookLines.has(hook.ownerId)) {
+    const rope = makeRope();
+    const head = makeHookHead();
+    scene.add(rope);
+    scene.add(head);
+    hookLines.set(hook.ownerId, { rope, head });
+  }
+  const { rope, head } = hookLines.get(hook.ownerId);
+  const from = sw(owner.x, owner.y, 0.55);
+  const to   = sw(hook.x, hook.y, 0.55);
+  positionRope(rope, from, to);
+  orientHookHead(head, from, to);
 }
 
 function removeHookLine(ownerId) {
   const h = hookLines.get(ownerId);
   if (!h) return;
-  scene.remove(h.line); scene.remove(h.tip);
-  h.line.geometry.dispose();
+  scene.remove(h.rope); scene.remove(h.head);
+  h.rope.geometry.dispose();
   hookLines.delete(ownerId);
 }
 
-// server coords → world Vector3 (Y is up, Z is server Y axis)
+// ── Aim indicator (dashed line while right joystick held) ─────────────────────
+let aimLineMesh = null;
+
+function ensureAimLine() {
+  if (aimLineMesh) return;
+  const geo = new THREE.BufferGeometry();
+  const mat = new THREE.LineDashedMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.45,
+    dashSize: 0.18, gapSize: 0.1,
+  });
+  aimLineMesh = new THREE.Line(geo, mat);
+  aimLineMesh.visible = false;
+  scene.add(aimLineMesh);
+}
+ensureAimLine();
+
+function showAimLine(fromW, toW) {
+  aimLineMesh.visible = true;
+  aimLineMesh.geometry.setFromPoints([fromW, toW]);
+  aimLineMesh.geometry.attributes.position.needsUpdate = true;
+  aimLineMesh.computeLineDistances();
+}
+function hideAimLine() { if (aimLineMesh) aimLineMesh.visible = false; }
+
+// ── Coord helpers ─────────────────────────────────────────────────────────────
 function sw(sx, sy, worldY = 0) {
   return new THREE.Vector3(sx * S, worldY, sy * S);
 }
 
+const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const raycaster  = new THREE.Raycaster();
+
+function screenToServerCoords(sx, sy) {
+  const ndc = new THREE.Vector2(
+    (sx / window.innerWidth)  *  2 - 1,
+    (sy / window.innerHeight) * -2 + 1
+  );
+  raycaster.setFromCamera(ndc, camera);
+  const pt = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(floorPlane, pt)) return null;
+  return { x: pt.x / S, y: pt.z / S };
+}
+
+// Project joystick screen-space direction to server coords from player origin
+function aimDirToServer(jx, jy) {
+  const me = sPlayers.find(p => p.id === myId);
+  if (!me) return null;
+  const ndc = sw(me.x, me.y, 0).project(camera);
+  const px = (ndc.x + 1) * 0.5 * window.innerWidth;
+  const py = (-ndc.y + 1) * 0.5 * window.innerHeight;
+  return screenToServerCoords(px + jx * 380, py + jy * 380);
+}
+
 // ── Game state ────────────────────────────────────────────────────────────────
 let socket = null, myId = null, myTeam = null, mode = 'pvp';
-let gameState  = 'menu'; // menu | searching | playing | gameover
-let sPlayers   = [];     // latest server state
-let sHooks     = [];
-let mapBuilt   = false;
+let gameState = 'menu';
+let sPlayers  = [];
+let sHooks    = [];
+let mapBuilt  = false;
+let myHookCooldown = 0;
 
 function showScreen(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const s = document.getElementById(`screen-${name}`);
   if (s) s.classList.add('active');
-
   const playing = (name === 'game');
   document.getElementById('overlay').style.pointerEvents = playing ? 'none' : 'auto';
-  document.getElementById('hud').style.display        = playing ? 'block' : 'none';
-  document.getElementById('hook-canvas').style.display = playing ? 'block' : 'none';
-  document.getElementById('zone-hint').style.display   = playing ? 'block' : 'none';
-  document.getElementById('joy-canvas').style.display  = playing ? 'block' : 'none';
+  document.getElementById('hud').style.display       = playing ? 'block' : 'none';
+  document.getElementById('joy-canvas').style.display = playing ? 'block' : 'none';
 }
 
 // ── Socket ────────────────────────────────────────────────────────────────────
 function connectSocket() {
-  if (socket) { socket.disconnect(); }
+  if (socket) socket.disconnect();
   socket = io(SERVER_URL, { transports: ['websocket'] });
 
   socket.on('connect', () => {
@@ -314,11 +395,8 @@ function connectSocket() {
   });
 
   socket.on('game_start', d => {
-    myId = socket.id;
-    gameState = 'playing';
-    sPlayers  = d.players;
-    sHooks    = [];
-
+    myId = socket.id; gameState = 'playing';
+    sPlayers = d.players; sHooks = [];
     const me = d.players.find(p => p.id === myId);
     if (me) {
       myTeam = me.team;
@@ -326,7 +404,6 @@ function connectSocket() {
       el.textContent = `Команда: ${TEAM_NAMES[me.team]}`;
       el.style.color = TEAM_HEX[me.team];
     }
-
     if (!mapBuilt) { buildMap(d.obstacles); mapBuilt = true; }
     showScreen('game');
   });
@@ -334,10 +411,11 @@ function connectSocket() {
   socket.on('state', d => {
     if (gameState !== 'playing') return;
     sPlayers = d.players;
-    // Remove vanished hooks
     const live = new Set(d.hooks.map(h => h.ownerId));
     for (const id of hookLines.keys()) if (!live.has(id)) removeHookLine(id);
     sHooks = d.hooks;
+    const me = d.players.find(p => p.id === myId);
+    if (me) myHookCooldown = me.hookCooldown ?? 0;
   });
 
   socket.on('player_left', d => {
@@ -368,80 +446,96 @@ function cleanupGame() {
   playerSlots.clear();
   hookLines.forEach((_, id) => removeHookLine(id));
   if (mapGroup) { scene.remove(mapGroup); mapGroup = null; }
-  mapBuilt  = false;
-  sPlayers  = [];
-  sHooks    = [];
+  mapBuilt = false; sPlayers = []; sHooks = [];
+  hideAimLine();
 }
 
-// ── Input ─────────────────────────────────────────────────────────────────────
-const joy     = { active: false, pid: -1, baseX: 0, baseY: 0, nx: 0, ny: 0 };
-const hookPtr = { active: false, pid: -1 };
-const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-const raycaster  = new THREE.Raycaster();
+// ── Dual joystick input ───────────────────────────────────────────────────────
+const JR = 58; // joystick radius px
 
-function screenToServerCoords(sx, sy) {
-  const ndc = new THREE.Vector2(
-    (sx / window.innerWidth)  *  2 - 1,
-    (sy / window.innerHeight) * -2 + 1
-  );
-  raycaster.setFromCamera(ndc, camera);
-  const pt = new THREE.Vector3();
-  raycaster.ray.intersectPlane(floorPlane, pt);
-  return { x: pt.x / S, y: pt.z / S };
+// Move joystick (left, fixed base)
+const moveJoy = { active: false, pid: -1, bx: 0, by: 0, nx: 0, ny: 0 };
+// Aim joystick (right, fixed base) — fires hook on release
+const aimJoy  = { active: false, pid: -1, bx: 0, by: 0, nx: 0, ny: 0 };
+
+let moveBase = { x: 110, y: 0 };
+let aimBase  = { x: 0,   y: 0 };
+
+function updateJoyBases() {
+  const w = window.innerWidth, h = window.innerHeight;
+  moveBase = { x: 110,     y: h - 110 };
+  aimBase  = { x: w - 110, y: h - 110 };
 }
+updateJoyBases();
 
-function fireHook(screenX, screenY) {
-  const gc = screenToServerCoords(screenX, screenY);
-  socket?.emit('input', { hookX: gc.x, hookY: gc.y });
-}
-
-canvas.addEventListener('touchstart', e => {
+function onTouchStart(e) {
   if (gameState !== 'playing') return;
   e.preventDefault();
   for (const t of e.changedTouches) {
-    if (!joy.active && t.clientX < window.innerWidth / 2) {
-      Object.assign(joy, { active: true, pid: t.identifier, baseX: t.clientX, baseY: t.clientY, nx: 0, ny: 0 });
-    } else if (!hookPtr.active && t.clientX >= window.innerWidth / 2) {
-      hookPtr.active = true; hookPtr.pid = t.identifier;
-      fireHook(t.clientX, t.clientY);
+    const cx = t.clientX, cy = t.clientY;
+    const mid = window.innerWidth / 2;
+    if (!moveJoy.active && cx < mid) {
+      Object.assign(moveJoy, { active: true, pid: t.identifier, bx: moveBase.x, by: moveBase.y, nx: 0, ny: 0 });
+    } else if (!aimJoy.active && cx >= mid) {
+      Object.assign(aimJoy,  { active: true, pid: t.identifier, bx: aimBase.x,  by: aimBase.y,  nx: 0, ny: 0 });
     }
   }
-}, { passive: false });
+}
 
-canvas.addEventListener('touchmove', e => {
+function onTouchMove(e) {
   if (gameState !== 'playing') return;
   e.preventDefault();
   for (const t of e.changedTouches) {
-    if (joy.active && t.identifier === joy.pid) {
-      const dx = t.clientX - joy.baseX, dy = t.clientY - joy.baseY;
+    if (moveJoy.active && t.identifier === moveJoy.pid) {
+      const dx = t.clientX - moveBase.x, dy = t.clientY - moveBase.y;
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      joy.nx = len > 8 ? dx / len : 0;
-      joy.ny = len > 8 ? dy / len : 0;
-      socket?.emit('input', { dx: joy.nx, dy: joy.ny });
+      moveJoy.nx = len > 8 ? dx / len : 0;
+      moveJoy.ny = len > 8 ? dy / len : 0;
+      socket?.emit('input', { dx: moveJoy.nx, dy: moveJoy.ny });
+    }
+    if (aimJoy.active && t.identifier === aimJoy.pid) {
+      const dx = t.clientX - aimBase.x, dy = t.clientY - aimBase.y;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      aimJoy.nx = len > 8 ? dx / len : 0;
+      aimJoy.ny = len > 8 ? dy / len : 0;
+      // Show 3D aim line
+      if (Math.abs(aimJoy.nx) > 0.05 || Math.abs(aimJoy.ny) > 0.05) {
+        const me = sPlayers.find(p => p.id === myId);
+        if (me) {
+          const target = aimDirToServer(aimJoy.nx, aimJoy.ny);
+          if (target) showAimLine(sw(me.x, me.y, 0.6), sw(target.x, target.y, 0.6));
+        }
+      }
     }
   }
-}, { passive: false });
+}
 
-canvas.addEventListener('touchend', e => {
+function onTouchEnd(e) {
   if (gameState !== 'playing') return;
   e.preventDefault();
   for (const t of e.changedTouches) {
-    if (joy.active && t.identifier === joy.pid) {
-      Object.assign(joy, { active: false, pid: -1, nx: 0, ny: 0 });
+    if (moveJoy.active && t.identifier === moveJoy.pid) {
+      Object.assign(moveJoy, { active: false, pid: -1, nx: 0, ny: 0 });
       socket?.emit('input', { dx: 0, dy: 0 });
     }
-    if (hookPtr.active && t.identifier === hookPtr.pid) {
-      hookPtr.active = false; hookPtr.pid = -1;
+    if (aimJoy.active && t.identifier === aimJoy.pid) {
+      // Fire hook toward aimed direction on release
+      if (Math.abs(aimJoy.nx) > 0.05 || Math.abs(aimJoy.ny) > 0.05) {
+        const target = aimDirToServer(aimJoy.nx, aimJoy.ny);
+        if (target) socket?.emit('input', { hookX: target.x, hookY: target.y });
+      }
+      Object.assign(aimJoy, { active: false, pid: -1, nx: 0, ny: 0 });
+      hideAimLine();
     }
   }
-}, { passive: false });
+}
 
-// Desktop: mouse click for hook, WASD for movement
-canvas.addEventListener('click', e => {
-  if (gameState !== 'playing') return;
-  if (e.clientX >= window.innerWidth / 2) fireHook(e.clientX, e.clientY);
-});
+canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
+canvas.addEventListener('touchend',   onTouchEnd,   { passive: false });
+canvas.addEventListener('touchcancel',onTouchEnd,   { passive: false });
 
+// Desktop: WASD + right-click to aim/fire
 const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.key] = true;
@@ -458,8 +552,13 @@ window.addEventListener('keyup', e => {
   const dy = (keys['s'] || keys['ArrowDown']  ? 1 : 0) - (keys['w'] || keys['ArrowUp']   ? 1 : 0);
   socket?.emit('input', { dx, dy });
 });
+canvas.addEventListener('click', e => {
+  if (gameState !== 'playing') return;
+  const gc = screenToServerCoords(e.clientX, e.clientY);
+  if (gc) socket?.emit('input', { hookX: gc.x, hookY: gc.y });
+});
 
-// ── Joystick canvas overlay ───────────────────────────────────────────────────
+// ── Joystick canvas ───────────────────────────────────────────────────────────
 const joyCanvas = document.getElementById('joy-canvas');
 const joyCtx    = joyCanvas.getContext('2d');
 
@@ -469,151 +568,131 @@ function resizeJoyCanvas() {
 }
 resizeJoyCanvas();
 
-function drawJoystick() {
-  joyCtx.clearRect(0, 0, joyCanvas.width, joyCanvas.height);
-  if (gameState !== 'playing' || !joy.active) return;
+function drawJoystick(ctx, base, joy, isAim) {
+  const tx = base.x + joy.nx * JR, ty = base.y + joy.ny * JR;
 
-  const maxR = 55;
-  const dx = joy.nx * maxR, dy = joy.ny * maxR;
-  const tx = joy.baseX + dx, ty = joy.baseY + dy;
+  // Base ring
+  ctx.beginPath();
+  ctx.arc(base.x, base.y, JR, 0, Math.PI * 2);
+  ctx.strokeStyle = joy.active ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.15)';
+  ctx.lineWidth   = 2.5;
+  ctx.stroke();
+  ctx.fillStyle   = joy.active ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.03)';
+  ctx.fill();
 
-  // Base
-  joyCtx.beginPath();
-  joyCtx.arc(joy.baseX, joy.baseY, maxR, 0, Math.PI * 2);
-  joyCtx.strokeStyle = 'rgba(255,255,255,0.2)';
-  joyCtx.lineWidth   = 2;
-  joyCtx.stroke();
-  joyCtx.fillStyle   = 'rgba(255,255,255,0.06)';
-  joyCtx.fill();
+  // Hook cooldown arc on aim joystick base
+  if (isAim) {
+    const ready = myHookCooldown <= 0;
+    const frac  = ready ? 1 : 1 - myHookCooldown / HOOK_COOLDOWN_MS;
+    ctx.beginPath();
+    ctx.arc(base.x, base.y, JR - 4, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+    ctx.strokeStyle = ready ? 'rgba(46,204,113,0.8)' : 'rgba(231,76,60,0.7)';
+    ctx.lineWidth   = 4;
+    ctx.stroke();
+    // Center icon/text
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    if (ready && !joy.active) {
+      ctx.font      = '18px Arial';
+      ctx.fillStyle = 'rgba(46,204,113,0.6)';
+      ctx.fillText('⚓', base.x, base.y);
+    } else if (!ready && !joy.active) {
+      ctx.font      = 'bold 12px Arial';
+      ctx.fillStyle = 'rgba(231,76,60,0.8)';
+      ctx.fillText((myHookCooldown / 1000).toFixed(1), base.x, base.y);
+    }
+  }
 
   // Thumb
-  joyCtx.beginPath();
-  joyCtx.arc(tx, ty, 22, 0, Math.PI * 2);
-  joyCtx.fillStyle = 'rgba(255,255,255,0.35)';
-  joyCtx.fill();
+  if (joy.active) {
+    ctx.beginPath();
+    ctx.arc(tx, ty, 22, 0, Math.PI * 2);
+    ctx.fillStyle = isAim ? 'rgba(231,76,60,0.7)' : 'rgba(255,255,255,0.4)';
+    ctx.fill();
+  }
 }
 
-// ── HUD: hook cooldown arc ────────────────────────────────────────────────────
-const hCanvas = document.getElementById('hook-canvas');
-const hCtx    = hCanvas.getContext('2d');
-
-function drawHookHUD(me) {
-  const W = hCanvas.width, H = hCanvas.height;
-  hCtx.clearRect(0, 0, W, H);
-  const cx = W / 2, cy = H / 2, r = 28;
-  const ready = me.hookCooldown <= 0;
-  const frac  = ready ? 1 : 1 - me.hookCooldown / 6000;
-
-  hCtx.beginPath();
-  hCtx.arc(cx, cy, r, 0, Math.PI * 2);
-  hCtx.strokeStyle = 'rgba(30,30,50,0.9)';
-  hCtx.lineWidth   = 7;
-  hCtx.stroke();
-
-  if (frac > 0.01) {
-    hCtx.beginPath();
-    hCtx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
-    hCtx.strokeStyle = ready ? '#2ecc71' : '#e74c3c';
-    hCtx.lineWidth   = 7;
-    hCtx.stroke();
-  }
-
-  hCtx.textAlign    = 'center';
-  hCtx.textBaseline = 'middle';
-  if (ready) {
-    hCtx.font      = '20px Arial';
-    hCtx.fillStyle = '#2ecc71';
-    hCtx.fillText('⚓', cx, cy);
-  } else {
-    hCtx.font      = 'bold 13px Arial';
-    hCtx.fillStyle = '#e74c3c';
-    hCtx.fillText((me.hookCooldown / 1000).toFixed(1), cx, cy);
-  }
+function drawJoysticks() {
+  joyCtx.clearRect(0, 0, joyCanvas.width, joyCanvas.height);
+  if (gameState !== 'playing') return;
+  drawJoystick(joyCtx, moveBase, moveJoy, false);
+  drawJoystick(joyCtx, aimBase,  aimJoy,  true);
 }
 
 // ── Render loop ───────────────────────────────────────────────────────────────
-const clock = new THREE.Clock();
-
 async function updatePlayers() {
   const activeIds = new Set(sPlayers.map(p => p.id));
-
-  // Remove departed players
   for (const id of charEntries.keys()) {
     if (!activeIds.has(id)) removeChar(id);
   }
-
-  // Update each player
   for (const p of sPlayers) {
-    const entry = await getOrCreateChar(p.id, p.team, p.name);
-    const target = sw(p.x, p.y, 0);
+    const entry = await getOrCreateChar(p.id, p.team);
+    entry.group.position.lerp(sw(p.x, p.y, 0), 0.25);
 
-    // Smooth lerp to server position
-    entry.group.position.lerp(target, 0.25);
+    const alive = p.alive;
+    entry.ring.material.opacity = alive ? 0.85 : 0.2;
 
-    // Alive / dead state
-    const alpha = p.alive ? 1 : 0.3;
     entry.group.traverse(c => {
-      if (c.isMesh && c.material) {
+      if (!c.isMesh || !c.material) return;
+      if (!alive) {
         c.material.transparent = true;
-        c.material.opacity = alpha;
-        if (p.hitFlash > 0 && p.alive) {
-          c.material.emissiveIntensity = 0.9;
-        } else {
-          c.material.emissiveIntensity = p.id === myId ? 0.2 : 0.12;
-        }
+        c.material.opacity = 0.3;
+        c.material.depthWrite = false;
+      } else {
+        c.material.transparent = false;
+        c.material.opacity = 1;
+        c.material.depthWrite = true;
+        c.material.emissiveIntensity = (p.hitFlash > 0) ? 0.9 : (p.id === myId ? 0.22 : 0.12);
       }
     });
-    entry.ring.material.opacity = p.alive ? 0.85 : 0.2;
   }
 }
 
 function updateHooks() {
-  for (const hook of sHooks) {
-    const owner = sPlayers.find(p => p.id === hook.ownerId);
-    if (owner) upsertHook(hook, owner);
+  for (const h of sHooks) {
+    const owner = sPlayers.find(p => p.id === h.ownerId);
+    if (owner) upsertHook(h, owner);
   }
 }
 
 function animateTorches() {
   const t = Date.now() / 800;
-  torches.forEach((l, i) => {
-    l.intensity = 2.0 + Math.sin(t * (3.1 + i * 0.7)) * 0.5;
-  });
+  torches.forEach((l, i) => { l.intensity = 2.0 + Math.sin(t * (3.1 + i * 0.7)) * 0.5; });
+}
+
+function updateHUD() {
+  const me = sPlayers.find(p => p.id === myId);
+  if (me) {
+    document.getElementById('hud-hp').textContent =
+      '❤'.repeat(me.hp) + '🖤'.repeat(2 - me.hp);
+  }
 }
 
 function animate() {
   requestAnimationFrame(animate);
-  clock.getDelta(); // keep clock ticking
-
   if (gameState === 'playing') {
     updatePlayers();
     updateHooks();
     animateTorches();
-    drawJoystick();
-
-    const me = sPlayers.find(p => p.id === myId);
-    if (me) {
-      document.getElementById('hud-hp').textContent =
-        '❤'.repeat(me.hp) + '🖤'.repeat(2 - me.hp);
-      drawHookHUD(me);
-    }
+    updateHUD();
+    drawJoysticks();
   }
-
   renderer.render(scene, camera);
 }
 
 // ── Resize ────────────────────────────────────────────────────────────────────
 window.addEventListener('resize', () => {
   const w = window.innerWidth, h = window.innerHeight;
+  aspect = w / h;
   renderer.setSize(w, h);
-  const asp = w / h;
-  camera.left   = -VIEW_SIZE * asp;
-  camera.right  =  VIEW_SIZE * asp;
+  camera.left   = -VIEW_SIZE * aspect;
+  camera.right  =  VIEW_SIZE * aspect;
   camera.updateProjectionMatrix();
   resizeJoyCanvas();
+  updateJoyBases();
 });
 
-// ── Menu buttons ──────────────────────────────────────────────────────────────
+// ── Menu ──────────────────────────────────────────────────────────────────────
 document.getElementById('btn-pvp').addEventListener('click', () => {
   mode = 'pvp'; showScreen('search'); connectSocket();
 });
@@ -621,6 +700,5 @@ document.getElementById('btn-bots').addEventListener('click', () => {
   mode = 'bots'; showScreen('search'); connectSocket();
 });
 
-// ── Start ─────────────────────────────────────────────────────────────────────
 showScreen('menu');
 animate();

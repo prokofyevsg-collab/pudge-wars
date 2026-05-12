@@ -16,35 +16,39 @@
     .screen { display: none; flex-direction: column; align-items: center; gap: 14px; padding: 20px; }
     .screen.active { display: flex; }
 
-    h1 { font-family: 'Arial Black', sans-serif; font-size: 46px; color: #e74c3c;
+    h1 { font-family: 'Arial Black', sans-serif; font-size: 42px; color: #e74c3c;
          text-shadow: 0 0 24px rgba(231,76,60,0.7), 2px 2px 0 #000; letter-spacing: 2px; }
-    .subtitle { color: #888; font-size: 15px; }
+    .subtitle { color: #888; font-size: 14px; }
     .instructions { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
-                    border-radius: 8px; padding: 14px 20px; color: #bbb; font-size: 14px;
+                    border-radius: 8px; padding: 12px 18px; color: #bbb; font-size: 13px;
                     line-height: 2; text-align: center; }
-    .btn { font-family: 'Arial Black', sans-serif; font-size: 18px; color: #fff;
-           background: #e74c3c; border: none; padding: 14px 32px; border-radius: 6px;
-           cursor: pointer; width: 220px; }
+    .btn { font-family: 'Arial Black', sans-serif; font-size: 17px; color: #fff;
+           background: #e74c3c; border: none; padding: 12px 28px; border-radius: 6px;
+           cursor: pointer; width: 210px; }
     .btn-green { background: #27ae60; }
     .btn:active { filter: brightness(0.75); }
 
     /* ─ In-game HUD ─ */
     #hud { position: absolute; top: 0; left: 0; right: 0; display: none;
-           padding: 10px 14px; pointer-events: none; }
+           padding: 8px 14px; pointer-events: none; }
     #hud-hp   { font-size: 22px; }
-    #hud-team { font-size: 14px; color: #ccc; margin-top: 2px; }
-
-    /* ─ Hook cooldown canvas ─ */
-    #hook-canvas { position: absolute; bottom: 36px; right: 36px;
-                   display: none; pointer-events: none; }
-
-    /* ─ Zone divider hint ─ */
-    #zone-hint { position: absolute; bottom: 12px; left: 0; right: 0;
-                 text-align: center; color: rgba(255,255,255,0.2);
-                 font-size: 11px; pointer-events: none; display: none; }
+    #hud-team { font-size: 13px; color: #ccc; margin-top: 2px; }
 
     /* ─ Joystick overlay canvas ─ */
     #joy-canvas { position: absolute; inset: 0; pointer-events: none; display: none; }
+
+    /* ─ Portrait rotation overlay ─ */
+    #rotate-overlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 1000;
+      background: #0d0005;
+      flex-direction: column; align-items: center; justify-content: center;
+      color: #fff; gap: 18px;
+    }
+    #rotate-overlay .icon { font-size: 56px; animation: spin 2s ease-in-out infinite alternate; }
+    #rotate-overlay p { font-size: 16px; color: #aaa; text-align: center; padding: 0 30px; }
+    @keyframes spin { from { transform: rotate(-30deg); } to { transform: rotate(30deg); } }
+    @media (orientation: portrait) { #rotate-overlay { display: flex; } }
   </style>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
@@ -58,8 +62,8 @@
       <h1>PUDGE WARS</h1>
       <p class="subtitle">2 vs 2 · Изометрическая арена</p>
       <div class="instructions">
-        🕹 Левый палец — движение<br>
-        🎯 Правый палец — прицел хука<br>
+        🕹 Левый джойстик — движение<br>
+        🎯 Правый джойстик — прицел и бросок крюка<br>
         💀 2 попадания = противник повержен
       </div>
       <button class="btn" id="btn-pvp">НАЙТИ ИГРУ (2v2)</button>
@@ -84,8 +88,11 @@
     <div id="hud-team"></div>
   </div>
 
-  <canvas id="hook-canvas" width="80" height="80"></canvas>
-  <div id="zone-hint">◀ Движение &nbsp;|&nbsp; Хук ▶</div>
+  <!-- Portrait mode warning -->
+  <div id="rotate-overlay">
+    <div class="icon">📱</div>
+    <p>Поверните устройство горизонтально для игры</p>
+  </div>
 
   <script type="importmap">
   {
