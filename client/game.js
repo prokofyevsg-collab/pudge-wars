@@ -522,74 +522,86 @@ function removeHookLine(id) {
 }
 
 // ── Aim indicator ─────────────────────────────────────────────────────────────
-// Dashed line from player → target
-let aimLine = null;
-function ensureAimLine() {
-  if (aimLine) return;
-  const mat = new THREE.LineDashedMaterial({
-    color: 0xff5533, transparent: true, opacity: 0.55,
-    dashSize: 0.22, gapSize: 0.12,
-  });
-  aimLine = new THREE.Line(new THREE.BufferGeometry(), mat);
-  aimLine.visible = false;
-  scene.add(aimLine);
-}
-ensureAimLine();
+let aimObjects = null;
 
-// Crosshair ring at target position
-let aimCrosshair = null;
-let crosshairTick = 0;
+function buildAimObjects() {
+  const ao = {};
 
-function buildCrosshair() {
-  const g = new THREE.Group();
-  const mat = () => new THREE.MeshBasicMaterial({
-    color: 0xff3311, transparent: true, opacity: 0.85,
-    side: THREE.DoubleSide, depthWrite: false,
+  // Dashed line player → target (flat on floor)
+  const lineMat = new THREE.LineDashedMaterial({
+    color: 0xff4422, transparent: true, opacity: 0.80,
+    dashSize: 0.24, gapSize: 0.10,
   });
-  // Outer ring
-  g.add(Object.assign(
-    new THREE.Mesh(new THREE.RingGeometry(0.26, 0.32, 32), mat()),
-    { rotation: { x: -Math.PI / 2 }, position: { y: 0.04 } }
-  ));
+  const lineGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(), new THREE.Vector3(1, 0, 0),
+  ]);
+  ao.line = new THREE.Line(lineGeo, lineMat);
+  ao.line.renderOrder = 10;
+  ao.line.visible = false;
+  scene.add(ao.line);
+
+  // Crosshair group at target position
+  const cg = new THREE.Group();
+  function mat() {
+    return new THREE.MeshBasicMaterial({
+      color: 0xff3311, transparent: true, opacity: 0.88,
+      side: THREE.DoubleSide, depthWrite: false,
+    });
+  }
+
+  // Outer ring — properly set rotation/position via Three.js properties
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.36, 32), mat());
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.05;
+  ring.renderOrder = 11;
+  cg.add(ring);
+
   // Inner dot
-  g.add(Object.assign(
-    new THREE.Mesh(new THREE.CircleGeometry(0.06, 16), mat()),
-    { rotation: { x: -Math.PI / 2 }, position: { y: 0.04 } }
-  ));
-  // 4 tick marks
+  const dot = new THREE.Mesh(new THREE.CircleGeometry(0.07, 16), mat());
+  dot.rotation.x = -Math.PI / 2;
+  dot.position.y = 0.05;
+  dot.renderOrder = 11;
+  cg.add(dot);
+
+  // 4 flat tick bars radiating outward (BoxGeometry lies flat, rotation.y orients them)
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2;
-    const tick = new THREE.Mesh(new THREE.PlaneGeometry(0.04, 0.14), mat());
-    tick.rotation.x = -Math.PI / 2;
-    tick.rotation.z = a;
-    tick.position.set(Math.cos(a) * 0.46, 0.04, Math.sin(a) * 0.46);
-    g.add(tick);
+    const tick = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.015, 0.20), mat());
+    tick.position.set(Math.cos(a) * 0.54, 0.05, Math.sin(a) * 0.54);
+    tick.rotation.y = a;
+    tick.renderOrder = 11;
+    cg.add(tick);
   }
-  g.visible = false;
-  scene.add(g);
-  return g;
+
+  cg.visible = false;
+  scene.add(cg);
+  ao.crosshair = cg;
+  ao.tick = 0;
+  return ao;
 }
 
 function showAimIndicators(fromW, toW) {
-  // Dashed line
-  aimLine.visible = true;
-  aimLine.geometry.setFromPoints([fromW, toW]);
-  aimLine.geometry.attributes.position.needsUpdate = true;
-  aimLine.computeLineDistances();
+  if (!aimObjects) aimObjects = buildAimObjects();
+  const ao = aimObjects;
 
-  // Crosshair
-  if (!aimCrosshair) aimCrosshair = buildCrosshair();
-  aimCrosshair.visible = true;
-  aimCrosshair.position.set(toW.x, 0.04, toW.z);
-  crosshairTick += 0.06;
-  const pulse = 1 + Math.sin(crosshairTick * 4) * 0.12;
-  aimCrosshair.scale.setScalar(pulse);
-  aimCrosshair.rotation.y = crosshairTick * 0.5;
+  const from = new THREE.Vector3(fromW.x, 0.08, fromW.z);
+  const to   = new THREE.Vector3(toW.x,   0.08, toW.z);
+
+  ao.line.visible = true;
+  ao.line.geometry.setFromPoints([from, to]);
+  ao.line.computeLineDistances();
+
+  ao.crosshair.visible = true;
+  ao.crosshair.position.set(to.x, 0, to.z);
+  ao.tick += 0.06;
+  ao.crosshair.scale.setScalar(1 + Math.sin(ao.tick * 4) * 0.12);
+  ao.crosshair.rotation.y = ao.tick * 0.5;
 }
 
 function hideAimIndicators() {
-  if (aimLine) aimLine.visible = false;
-  if (aimCrosshair) aimCrosshair.visible = false;
+  if (!aimObjects) return;
+  aimObjects.line.visible = false;
+  aimObjects.crosshair.visible = false;
 }
 
 // ── Coord helpers ─────────────────────────────────────────────────────────────
@@ -838,7 +850,7 @@ canvas.addEventListener('mousemove', e => {
   if (gameState !== 'playing') return;
   const gc = screenToServerCoords(e.clientX, e.clientY);
   const me = sPlayers.find(p => p.id === myId);
-  if (gc && me) showAimIndicators(sw(me.x, me.y, 0.6), sw(gc.x, gc.y, 0.6));
+  if (gc && me) showAimIndicators(sw(me.x, me.y, 0), sw(gc.x, gc.y, 0));
 });
 
 // ── Joystick canvas ───────────────────────────────────────────────────────────
@@ -886,6 +898,32 @@ function drawOneJoystick(base, joy, isAim) {
         joyCtx.fillText((myHookCooldown / 1000).toFixed(1), base.x, base.y);
       }
     }
+  }
+
+  // Aim direction arrow extending from thumb (right joystick only)
+  if (isAim && joy.active && (Math.abs(joy.nx) > 0.05 || Math.abs(joy.ny) > 0.05)) {
+    const arrowEnd = JR * 3.2;
+    joyCtx.save();
+    joyCtx.beginPath();
+    joyCtx.moveTo(tx, ty);
+    joyCtx.lineTo(base.x + joy.nx * arrowEnd, base.y + joy.ny * arrowEnd);
+    joyCtx.strokeStyle = 'rgba(231,76,60,0.60)';
+    joyCtx.lineWidth = 2.5;
+    joyCtx.setLineDash([9, 6]);
+    joyCtx.stroke();
+    // Arrowhead
+    const ax = base.x + joy.nx * arrowEnd, ay = base.y + joy.ny * arrowEnd;
+    const angle = Math.atan2(joy.ny, joy.nx);
+    joyCtx.setLineDash([]);
+    joyCtx.beginPath();
+    joyCtx.moveTo(ax, ay);
+    joyCtx.lineTo(ax - Math.cos(angle - 0.45) * 14, ay - Math.sin(angle - 0.45) * 14);
+    joyCtx.moveTo(ax, ay);
+    joyCtx.lineTo(ax - Math.cos(angle + 0.45) * 14, ay - Math.sin(angle + 0.45) * 14);
+    joyCtx.strokeStyle = 'rgba(231,76,60,0.85)';
+    joyCtx.lineWidth = 2.5;
+    joyCtx.stroke();
+    joyCtx.restore();
   }
 
   // Thumb
@@ -1017,7 +1055,7 @@ function updateAimFromJoystick() {
   const me = sPlayers.find(p => p.id === myId);
   if (!me) return;
   const target = aimDirToServer(aimJoy.nx, aimJoy.ny);
-  if (target) showAimIndicators(sw(me.x, me.y, 0.6), sw(target.x, target.y, 0.6));
+  if (target) showAimIndicators(sw(me.x, me.y, 0), sw(target.x, target.y, 0));
 }
 
 let _lastTime = performance.now();
