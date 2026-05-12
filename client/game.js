@@ -1,23 +1,26 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ── Constants (keep in sync with server) ────────────────────────────────────
 const SERVER_URL   = window.location.origin;
-const MAP_W = 800, MAP_H = 600;
-const S = 0.01;
+let   MAP_W = 1600, MAP_H = 900;   // updated from game_start
+const S = 0.01;                     // server → world scale  (1600→16, 900→9)
 const TEAM_COLORS  = [0xe74c3c, 0x2980b9];
 const TEAM_HEX     = ['#e74c3c', '#2980b9'];
 const TEAM_NAMES   = ['Красные', 'Синие'];
 const CHAR_LETTERS = 'abcdefghijklmnopqr'.split('');
-const VIEW_SIZE    = 7;
 const HOOK_COOLDOWN_MS = 6000;
+
+// VIEW_SIZE = 6 fills the screen exactly for 16:9 map at our camera angle
+// (calculated: y_cam half-range ≈ 5.88 for 16×9 world at 45° iso)
+const VIEW_SIZE = 6;
 
 // ── Telegram ──────────────────────────────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const tgUser = tg?.initDataUnsafe?.user ?? null;
 
-// ── Lock landscape ────────────────────────────────────────────────────────────
+// ── Landscape lock ────────────────────────────────────────────────────────────
 try { screen.orientation.lock('landscape'); } catch (_) {}
 
 // ── Renderer ──────────────────────────────────────────────────────────────────
@@ -31,37 +34,47 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 // ── Scene ─────────────────────────────────────────────────────────────────────
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x110008);
-scene.fog = new THREE.FogExp2(0x110008, 0.07);
+scene.fog = new THREE.FogExp2(0x110008, 0.04);
 
 // ── Camera ────────────────────────────────────────────────────────────────────
 let aspect = window.innerWidth / window.innerHeight;
 const camera = new THREE.OrthographicCamera(
-  -VIEW_SIZE * aspect, VIEW_SIZE * aspect, VIEW_SIZE, -VIEW_SIZE, 0.1, 100
+  -VIEW_SIZE * aspect, VIEW_SIZE * aspect, VIEW_SIZE, -VIEW_SIZE, 0.1, 200
 );
-const MCX = MAP_W * S / 2, MCZ = MAP_H * S / 2;
-camera.position.set(MCX + 7, 11, MCZ + 9);
-camera.lookAt(MCX, 0, MCZ);
+
+function positionCamera() {
+  const mcx = MAP_W * S / 2, mcz = MAP_H * S / 2;
+  camera.position.set(mcx + 14, 22, mcz + 18);
+  camera.lookAt(mcx, 0, mcz);
+}
+positionCamera();
 
 // ── Lighting ──────────────────────────────────────────────────────────────────
-scene.add(new THREE.AmbientLight(0xffe4cc, 0.6));
+// Sky / ground fill
+const hemi = new THREE.HemisphereLight(0xfff0d0, 0x3a1800, 0.7);
+scene.add(hemi);
 
-const sun = new THREE.DirectionalLight(0xfff5e0, 1.1);
-sun.position.set(8, 16, 8);
+// Key light (warm sun, casts shadows)
+const sun = new THREE.DirectionalLight(0xffeedd, 1.3);
+sun.position.set(10, 20, 10);
 sun.castShadow = true;
-Object.assign(sun.shadow.mapSize, { width: 1024, height: 1024 });
-Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 1, far: 50 });
+Object.assign(sun.shadow.mapSize, { width: 2048, height: 2048 });
+Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 80 });
 scene.add(sun);
 
-const torch = (x, z) => {
-  const l = new THREE.PointLight(0xff7700, 2.0, 7);
-  l.position.set(x, 1.2, z);
+// Fill light (cool, from opposite side)
+const fill = new THREE.DirectionalLight(0xaaccff, 0.4);
+fill.position.set(-8, 8, -8);
+scene.add(fill);
+
+// Animated torches at map corners
+const torches = [];
+function addTorch(x, z) {
+  const l = new THREE.PointLight(0xff7700, 2.5, 10);
+  l.position.set(x, 1.5, z);
   scene.add(l);
-  return l;
-};
-const torches = [
-  torch(0.5, 0.5), torch(MAP_W * S - 0.5, MAP_H * S - 0.5),
-  torch(0.5, MAP_H * S - 0.5), torch(MAP_W * S - 0.5, 0.5),
-];
+  torches.push(l);
+}
 
 // ── GLB loader ────────────────────────────────────────────────────────────────
 const gltfLoader = new GLTFLoader();
@@ -70,13 +83,17 @@ const modelCache = new Map();
 function loadChar(letter) {
   if (modelCache.has(letter)) return Promise.resolve(modelCache.get(letter));
   return new Promise(resolve => {
-    const url = `assets/chars/Models/GLB%20format/character-${letter}.glb`;
-    gltfLoader.load(url, gltf => {
-      const model = gltf.scene;
-      model.traverse(c => { if (c.isMesh) c.castShadow = true; });
-      modelCache.set(letter, model);
-      resolve(model);
-    }, undefined, () => resolve(null));
+    gltfLoader.load(
+      `assets/chars/Models/GLB%20format/character-${letter}.glb`,
+      gltf => {
+        const m = gltf.scene;
+        m.traverse(c => { if (c.isMesh) c.castShadow = true; });
+        modelCache.set(letter, m);
+        resolve(m);
+      },
+      undefined,
+      () => resolve(null)
+    );
   });
 }
 ['a', 'b', 'c', 'd'].forEach(loadChar);
@@ -89,8 +106,9 @@ function buildMap(obstacles) {
   mapGroup = new THREE.Group();
   const mw = MAP_W * S, mh = MAP_H * S;
 
+  // Floor
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(mw, mh, 20, 15),
+    new THREE.PlaneGeometry(mw, mh, 32, 18),
     new THREE.MeshLambertMaterial({ color: 0x7a4520 })
   );
   floor.rotation.x = -Math.PI / 2;
@@ -98,37 +116,39 @@ function buildMap(obstacles) {
   floor.receiveShadow = true;
   mapGroup.add(floor);
 
-  const tileSize = 0.5;
+  // Tile grid
   const tileGrid = new THREE.Mesh(
-    new THREE.PlaneGeometry(mw, mh, mw / tileSize, mh / tileSize),
-    new THREE.MeshBasicMaterial({ color: 0x5a3010, wireframe: true, transparent: true, opacity: 0.13 })
+    new THREE.PlaneGeometry(mw, mh, mw / 0.5, mh / 0.5),
+    new THREE.MeshBasicMaterial({ color: 0x5a3010, wireframe: true, transparent: true, opacity: 0.10 })
   );
   tileGrid.rotation.x = -Math.PI / 2;
   tileGrid.position.set(mw / 2, 0.003, mh / 2);
   mapGroup.add(tileGrid);
 
+  // Perimeter walls
   const wallMat  = new THREE.MeshLambertMaterial({ color: 0x5a4878 });
   const wallCapM = new THREE.MeshLambertMaterial({ color: 0x8a7aaa });
-  const WH = 1.1, WT = 0.35;
-  [[mw / 2, WH / 2, -WT / 2, mw + WT * 2, WH, WT],
-   [mw / 2, WH / 2, mh + WT / 2, mw + WT * 2, WH, WT],
-   [-WT / 2, WH / 2, mh / 2, WT, WH, mh],
-   [mw + WT / 2, WH / 2, mh / 2, WT, WH, mh]].forEach(([x, y, z, w, h, d]) => {
+  const WH = 1.2, WT = 0.4;
+  [[mw / 2, WH / 2, -WT / 2,       mw + WT * 2, WH, WT],
+   [mw / 2, WH / 2, mh + WT / 2,   mw + WT * 2, WH, WT],
+   [-WT / 2, WH / 2, mh / 2,        WT, WH, mh],
+   [mw + WT / 2, WH / 2, mh / 2,    WT, WH, mh]].forEach(([x, y, z, w, h, d]) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
     m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
     mapGroup.add(m);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(w, 0.06, d), wallCapM);
-    cap.position.set(x, h + 0.03, z);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, d), wallCapM);
+    cap.position.set(x, h + 0.035, z);
     mapGroup.add(cap);
   });
 
+  // Obstacle pillars
   const obsMat  = new THREE.MeshLambertMaterial({ color: 0x625278 });
   const obsCapM = new THREE.MeshLambertMaterial({ color: 0x9a88bc });
   obstacles.forEach(o => {
-    const ox = o.x * S, oz = o.y * S, ow = o.w * S, oh = o.h * S, BH = 0.85;
+    const ox = o.x * S, oz = o.y * S, ow = o.w * S, oh = o.h * S, BH = 1.0;
     const shadow = new THREE.Mesh(
-      new THREE.PlaneGeometry(ow + 0.15, oh + 0.15),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 })
+      new THREE.PlaneGeometry(ow + 0.2, oh + 0.2),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 })
     );
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.set(ox, 0.002, oz);
@@ -136,15 +156,25 @@ function buildMap(obstacles) {
     const block = new THREE.Mesh(new THREE.BoxGeometry(ow, BH, oh), obsMat);
     block.position.set(ox, BH / 2, oz); block.castShadow = true; block.receiveShadow = true;
     mapGroup.add(block);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(ow, 0.07, oh), obsCapM);
-    cap.position.set(ox, BH + 0.035, oz);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(ow, 0.08, oh), obsCapM);
+    cap.position.set(ox, BH + 0.04, oz);
     mapGroup.add(cap);
   });
 
   scene.add(mapGroup);
+
+  // Torches at corners
+  torches.length = 0;
+  addTorch(0.6, 0.6);
+  addTorch(mw - 0.6, mh - 0.6);
+  addTorch(0.6, mh - 0.6);
+  addTorch(mw - 0.6, 0.6);
+  // Extra torches along walls for better coverage
+  addTorch(mw / 2, 0.6);
+  addTorch(mw / 2, mh - 0.6);
 }
 
-// ── Character meshes ──────────────────────────────────────────────────────────
+// ── Characters ────────────────────────────────────────────────────────────────
 const charEntries = new Map();
 const playerSlots = new Map();
 
@@ -167,11 +197,9 @@ async function getOrCreateChar(id, team) {
   if (charEntries.has(id)) return charEntries.get(id);
 
   if (!playerSlots.has(id)) playerSlots.set(id, playerSlots.size);
-  const slot   = playerSlots.get(id);
-  const letter = CHAR_LETTERS[slot % CHAR_LETTERS.length];
+  const letter = CHAR_LETTERS[playerSlots.get(id) % CHAR_LETTERS.length];
   const color  = TEAM_COLORS[team];
-
-  const group = new THREE.Group();
+  const group  = new THREE.Group();
 
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.28, 0.40, 24),
@@ -181,20 +209,18 @@ async function getOrCreateChar(id, team) {
   ring.position.y = 0.005;
   group.add(ring);
 
-  const baseModel = await loadChar(letter);
-  if (baseModel) {
-    const model = baseModel.clone();
+  const base = await loadChar(letter);
+  if (base) {
+    const model = base.clone();
     model.scale.setScalar(0.55);
     model.rotation.y = Math.PI * 1.25;
     model.traverse(c => {
       if (!c.isMesh) return;
-      c.castShadow = true;
-      c.receiveShadow = true;
+      c.castShadow = true; c.receiveShadow = true;
       c.material = c.material.clone();
-      // alphaTest cuts transparent UV-map pixels without making the mesh transparent
-      c.material.alphaTest = 0.1;
+      c.material.alphaTest   = 0.1;
       c.material.transparent = false;
-      c.material.depthWrite = true;
+      c.material.depthWrite  = true;
       c.material.emissive    = new THREE.Color(color);
       c.material.emissiveIntensity = 0.12;
     });
@@ -215,45 +241,33 @@ function removeChar(id) {
 }
 
 // ── Hook geometry ─────────────────────────────────────────────────────────────
-// J-shaped hook head built from a smooth CatmullRom curve in the XZ plane
 function makeHookHead() {
   const mat = new THREE.MeshStandardMaterial({ color: 0xccccdd, metalness: 0.95, roughness: 0.07 });
-
-  // Curve defined in XZ plane (Y=0), shank along -Z, bend opens toward -X
+  // J-shape curve in XZ plane: shank along -Z, bend opens toward -X
   const pts = [
-    new THREE.Vector3(0,    0, -0.18), // eye end (trailing)
-    new THREE.Vector3(0,    0, -0.10),
-    new THREE.Vector3(0,    0,  0.00), // start of bend
-    new THREE.Vector3(-0.03, 0, 0.04),
-    new THREE.Vector3(-0.07, 0, 0.04),
-    new THREE.Vector3(-0.10, 0, 0.00),
+    new THREE.Vector3(0,     0, -0.18),
+    new THREE.Vector3(0,     0, -0.08),
+    new THREE.Vector3(0,     0,  0.00),
+    new THREE.Vector3(-0.03, 0,  0.05),
+    new THREE.Vector3(-0.07, 0,  0.05),
+    new THREE.Vector3(-0.10, 0,  0.01),
     new THREE.Vector3(-0.10, 0, -0.05),
-    new THREE.Vector3(-0.07, 0, -0.08), // barb / tip
-    new THREE.Vector3(-0.04, 0, -0.07),
+    new THREE.Vector3(-0.07, 0, -0.08),
+    new THREE.Vector3(-0.03, 0, -0.06),
   ];
-  const curve = new THREE.CatmullRomCurve3(pts);
-  const geo   = new THREE.TubeGeometry(curve, 24, 0.014, 8, false);
-  const hook  = new THREE.Mesh(geo, mat);
-
-  // Small ring/eye at the shank end
-  const eye = new THREE.Mesh(
-    new THREE.TorusGeometry(0.022, 0.008, 6, 12),
-    mat
-  );
-  eye.rotation.x = Math.PI / 2; // ring lies in XZ plane
+  const geo  = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.014, 8, false);
+  const hook = new THREE.Mesh(geo, mat);
+  const eye  = new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.008, 6, 12), mat);
+  eye.rotation.x = Math.PI / 2;
   eye.position.set(0, 0, -0.22);
-
   const g = new THREE.Group();
-  g.add(hook);
-  g.add(eye);
+  g.add(hook); g.add(eye);
   return g;
 }
 
-// Rope: single cylinder scaled along its length each frame
 function makeRope() {
-  const geo = new THREE.CylinderGeometry(0.022, 0.022, 1, 6);
   return new THREE.Mesh(
-    geo,
+    new THREE.CylinderGeometry(0.022, 0.022, 1, 6),
     new THREE.MeshLambertMaterial({ color: 0x7a5520 })
   );
 }
@@ -270,63 +284,103 @@ function positionRope(rope, from, to) {
 
 function orientHookHead(head, from, to) {
   const dir = to.clone().sub(from);
-  const len = dir.length();
   head.position.copy(to);
-  if (len > 0.01) {
-    // Rotate around Y so local +Z faces direction of travel
-    head.rotation.y = Math.atan2(dir.x, dir.z);
-  }
+  if (dir.length() > 0.01) head.rotation.y = Math.atan2(dir.x, dir.z);
 }
 
-// hookLines: ownerId → { rope, head }
-const hookLines = new Map();
+const hookLines = new Map(); // ownerId → { rope, head }
 
 function upsertHook(hook, owner) {
   if (!hookLines.has(hook.ownerId)) {
-    const rope = makeRope();
-    const head = makeHookHead();
-    scene.add(rope);
-    scene.add(head);
+    const rope = makeRope(), head = makeHookHead();
+    scene.add(rope); scene.add(head);
     hookLines.set(hook.ownerId, { rope, head });
   }
   const { rope, head } = hookLines.get(hook.ownerId);
   const from = sw(owner.x, owner.y, 0.55);
-  const to   = sw(hook.x, hook.y, 0.55);
+  const to   = sw(hook.x,  hook.y,  0.55);
   positionRope(rope, from, to);
   orientHookHead(head, from, to);
 }
 
-function removeHookLine(ownerId) {
-  const h = hookLines.get(ownerId);
+function removeHookLine(id) {
+  const h = hookLines.get(id);
   if (!h) return;
   scene.remove(h.rope); scene.remove(h.head);
   h.rope.geometry.dispose();
-  hookLines.delete(ownerId);
+  hookLines.delete(id);
 }
 
-// ── Aim indicator (dashed line while right joystick held) ─────────────────────
-let aimLineMesh = null;
-
+// ── Aim indicator ─────────────────────────────────────────────────────────────
+// Dashed line from player → target
+let aimLine = null;
 function ensureAimLine() {
-  if (aimLineMesh) return;
-  const geo = new THREE.BufferGeometry();
+  if (aimLine) return;
   const mat = new THREE.LineDashedMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.45,
-    dashSize: 0.18, gapSize: 0.1,
+    color: 0xff5533, transparent: true, opacity: 0.55,
+    dashSize: 0.22, gapSize: 0.12,
   });
-  aimLineMesh = new THREE.Line(geo, mat);
-  aimLineMesh.visible = false;
-  scene.add(aimLineMesh);
+  aimLine = new THREE.Line(new THREE.BufferGeometry(), mat);
+  aimLine.visible = false;
+  scene.add(aimLine);
 }
 ensureAimLine();
 
-function showAimLine(fromW, toW) {
-  aimLineMesh.visible = true;
-  aimLineMesh.geometry.setFromPoints([fromW, toW]);
-  aimLineMesh.geometry.attributes.position.needsUpdate = true;
-  aimLineMesh.computeLineDistances();
+// Crosshair ring at target position
+let aimCrosshair = null;
+let crosshairTick = 0;
+
+function buildCrosshair() {
+  const g = new THREE.Group();
+  const mat = () => new THREE.MeshBasicMaterial({
+    color: 0xff3311, transparent: true, opacity: 0.85,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  // Outer ring
+  g.add(Object.assign(
+    new THREE.Mesh(new THREE.RingGeometry(0.26, 0.32, 32), mat()),
+    { rotation: { x: -Math.PI / 2 }, position: { y: 0.04 } }
+  ));
+  // Inner dot
+  g.add(Object.assign(
+    new THREE.Mesh(new THREE.CircleGeometry(0.06, 16), mat()),
+    { rotation: { x: -Math.PI / 2 }, position: { y: 0.04 } }
+  ));
+  // 4 tick marks
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    const tick = new THREE.Mesh(new THREE.PlaneGeometry(0.04, 0.14), mat());
+    tick.rotation.x = -Math.PI / 2;
+    tick.rotation.z = a;
+    tick.position.set(Math.cos(a) * 0.46, 0.04, Math.sin(a) * 0.46);
+    g.add(tick);
+  }
+  g.visible = false;
+  scene.add(g);
+  return g;
 }
-function hideAimLine() { if (aimLineMesh) aimLineMesh.visible = false; }
+
+function showAimIndicators(fromW, toW) {
+  // Dashed line
+  aimLine.visible = true;
+  aimLine.geometry.setFromPoints([fromW, toW]);
+  aimLine.geometry.attributes.position.needsUpdate = true;
+  aimLine.computeLineDistances();
+
+  // Crosshair
+  if (!aimCrosshair) aimCrosshair = buildCrosshair();
+  aimCrosshair.visible = true;
+  aimCrosshair.position.set(toW.x, 0.04, toW.z);
+  crosshairTick += 0.06;
+  const pulse = 1 + Math.sin(crosshairTick * 4) * 0.12;
+  aimCrosshair.scale.setScalar(pulse);
+  aimCrosshair.rotation.y = crosshairTick * 0.5;
+}
+
+function hideAimIndicators() {
+  if (aimLine) aimLine.visible = false;
+  if (aimCrosshair) aimCrosshair.visible = false;
+}
 
 // ── Coord helpers ─────────────────────────────────────────────────────────────
 function sw(sx, sy, worldY = 0) {
@@ -338,7 +392,7 @@ const raycaster  = new THREE.Raycaster();
 
 function screenToServerCoords(sx, sy) {
   const ndc = new THREE.Vector2(
-    (sx / window.innerWidth)  *  2 - 1,
+    (sx / window.innerWidth)  * 2 - 1,
     (sy / window.innerHeight) * -2 + 1
   );
   raycaster.setFromCamera(ndc, camera);
@@ -347,14 +401,14 @@ function screenToServerCoords(sx, sy) {
   return { x: pt.x / S, y: pt.z / S };
 }
 
-// Project joystick screen-space direction to server coords from player origin
+// Convert right-joystick direction to server target coords
 function aimDirToServer(jx, jy) {
   const me = sPlayers.find(p => p.id === myId);
   if (!me) return null;
   const ndc = sw(me.x, me.y, 0).project(camera);
   const px = (ndc.x + 1) * 0.5 * window.innerWidth;
   const py = (-ndc.y + 1) * 0.5 * window.innerHeight;
-  return screenToServerCoords(px + jx * 380, py + jy * 380);
+  return screenToServerCoords(px + jx * 420, py + jy * 420);
 }
 
 // ── Game state ────────────────────────────────────────────────────────────────
@@ -371,8 +425,8 @@ function showScreen(name) {
   if (s) s.classList.add('active');
   const playing = (name === 'game');
   document.getElementById('overlay').style.pointerEvents = playing ? 'none' : 'auto';
-  document.getElementById('hud').style.display       = playing ? 'block' : 'none';
-  document.getElementById('joy-canvas').style.display = playing ? 'block' : 'none';
+  document.getElementById('hud').style.display        = playing ? 'block' : 'none';
+  document.getElementById('joy-canvas').style.display  = playing ? 'block' : 'none';
 }
 
 // ── Socket ────────────────────────────────────────────────────────────────────
@@ -396,6 +450,8 @@ function connectSocket() {
 
   socket.on('game_start', d => {
     myId = socket.id; gameState = 'playing';
+    if (d.mapW) { MAP_W = d.mapW; MAP_H = d.mapH; }
+    positionCamera();
     sPlayers = d.players; sHooks = [];
     const me = d.players.find(p => p.id === myId);
     if (me) {
@@ -427,10 +483,9 @@ function connectSocket() {
     gameState = 'gameover';
     const won = d.winner === myTeam, draw = d.winner === -1;
     const title = document.getElementById('gameover-title');
-    const sub   = document.getElementById('gameover-sub');
     title.textContent = draw ? 'НИЧЬЯ' : won ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ';
     title.style.color = draw ? '#f39c12' : won ? '#f1c40f' : '#e74c3c';
-    sub.textContent   = draw ? '' : `${TEAM_NAMES[d.winner]} побеждают`;
+    document.getElementById('gameover-sub').textContent = draw ? '' : `${TEAM_NAMES[d.winner]} побеждают`;
     showScreen('gameover');
     setTimeout(() => { cleanupGame(); showScreen('menu'); }, 4000);
   });
@@ -447,17 +502,15 @@ function cleanupGame() {
   hookLines.forEach((_, id) => removeHookLine(id));
   if (mapGroup) { scene.remove(mapGroup); mapGroup = null; }
   mapBuilt = false; sPlayers = []; sHooks = [];
-  hideAimLine();
+  hideAimIndicators();
+  torches.forEach(l => scene.remove(l));
+  torches.length = 0;
 }
 
-// ── Dual joystick input ───────────────────────────────────────────────────────
-const JR = 58; // joystick radius px
-
-// Move joystick (left, fixed base)
-const moveJoy = { active: false, pid: -1, bx: 0, by: 0, nx: 0, ny: 0 };
-// Aim joystick (right, fixed base) — fires hook on release
-const aimJoy  = { active: false, pid: -1, bx: 0, by: 0, nx: 0, ny: 0 };
-
+// ── Dual joystick ─────────────────────────────────────────────────────────────
+const JR = 58;
+const moveJoy = { active: false, pid: -1, nx: 0, ny: 0 };
+const aimJoy  = { active: false, pid: -1, nx: 0, ny: 0 };
 let moveBase = { x: 110, y: 0 };
 let aimBase  = { x: 0,   y: 0 };
 
@@ -468,21 +521,19 @@ function updateJoyBases() {
 }
 updateJoyBases();
 
-function onTouchStart(e) {
+canvas.addEventListener('touchstart', e => {
   if (gameState !== 'playing') return;
   e.preventDefault();
   for (const t of e.changedTouches) {
-    const cx = t.clientX, cy = t.clientY;
     const mid = window.innerWidth / 2;
-    if (!moveJoy.active && cx < mid) {
-      Object.assign(moveJoy, { active: true, pid: t.identifier, bx: moveBase.x, by: moveBase.y, nx: 0, ny: 0 });
-    } else if (!aimJoy.active && cx >= mid) {
-      Object.assign(aimJoy,  { active: true, pid: t.identifier, bx: aimBase.x,  by: aimBase.y,  nx: 0, ny: 0 });
-    }
+    if (!moveJoy.active && t.clientX < mid)
+      Object.assign(moveJoy, { active: true, pid: t.identifier, nx: 0, ny: 0 });
+    else if (!aimJoy.active && t.clientX >= mid)
+      Object.assign(aimJoy,  { active: true, pid: t.identifier, nx: 0, ny: 0 });
   }
-}
+}, { passive: false });
 
-function onTouchMove(e) {
+canvas.addEventListener('touchmove', e => {
   if (gameState !== 'playing') return;
   e.preventDefault();
   for (const t of e.changedTouches) {
@@ -498,19 +549,11 @@ function onTouchMove(e) {
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
       aimJoy.nx = len > 8 ? dx / len : 0;
       aimJoy.ny = len > 8 ? dy / len : 0;
-      // Show 3D aim line
-      if (Math.abs(aimJoy.nx) > 0.05 || Math.abs(aimJoy.ny) > 0.05) {
-        const me = sPlayers.find(p => p.id === myId);
-        if (me) {
-          const target = aimDirToServer(aimJoy.nx, aimJoy.ny);
-          if (target) showAimLine(sw(me.x, me.y, 0.6), sw(target.x, target.y, 0.6));
-        }
-      }
     }
   }
-}
+}, { passive: false });
 
-function onTouchEnd(e) {
+canvas.addEventListener('touchend', e => {
   if (gameState !== 'playing') return;
   e.preventDefault();
   for (const t of e.changedTouches) {
@@ -519,23 +562,30 @@ function onTouchEnd(e) {
       socket?.emit('input', { dx: 0, dy: 0 });
     }
     if (aimJoy.active && t.identifier === aimJoy.pid) {
-      // Fire hook toward aimed direction on release
       if (Math.abs(aimJoy.nx) > 0.05 || Math.abs(aimJoy.ny) > 0.05) {
         const target = aimDirToServer(aimJoy.nx, aimJoy.ny);
         if (target) socket?.emit('input', { hookX: target.x, hookY: target.y });
       }
       Object.assign(aimJoy, { active: false, pid: -1, nx: 0, ny: 0 });
-      hideAimLine();
+      hideAimIndicators();
     }
   }
-}
+}, { passive: false });
+canvas.addEventListener('touchcancel', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (moveJoy.active && t.identifier === moveJoy.pid) {
+      Object.assign(moveJoy, { active: false, pid: -1, nx: 0, ny: 0 });
+      socket?.emit('input', { dx: 0, dy: 0 });
+    }
+    if (aimJoy.active && t.identifier === aimJoy.pid) {
+      Object.assign(aimJoy, { active: false, pid: -1, nx: 0, ny: 0 });
+      hideAimIndicators();
+    }
+  }
+}, { passive: false });
 
-canvas.addEventListener('touchstart', onTouchStart, { passive: false });
-canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
-canvas.addEventListener('touchend',   onTouchEnd,   { passive: false });
-canvas.addEventListener('touchcancel',onTouchEnd,   { passive: false });
-
-// Desktop: WASD + right-click to aim/fire
+// Desktop WASD + click
 const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.key] = true;
@@ -557,6 +607,13 @@ canvas.addEventListener('click', e => {
   const gc = screenToServerCoords(e.clientX, e.clientY);
   if (gc) socket?.emit('input', { hookX: gc.x, hookY: gc.y });
 });
+// Desktop mouse move: show aim indicator toward cursor
+canvas.addEventListener('mousemove', e => {
+  if (gameState !== 'playing') return;
+  const gc = screenToServerCoords(e.clientX, e.clientY);
+  const me = sPlayers.find(p => p.id === myId);
+  if (gc && me) showAimIndicators(sw(me.x, me.y, 0.6), sw(gc.x, gc.y, 0.6));
+});
 
 // ── Joystick canvas ───────────────────────────────────────────────────────────
 const joyCanvas = document.getElementById('joy-canvas');
@@ -568,81 +625,75 @@ function resizeJoyCanvas() {
 }
 resizeJoyCanvas();
 
-function drawJoystick(ctx, base, joy, isAim) {
+function drawOneJoystick(base, joy, isAim) {
   const tx = base.x + joy.nx * JR, ty = base.y + joy.ny * JR;
 
   // Base ring
-  ctx.beginPath();
-  ctx.arc(base.x, base.y, JR, 0, Math.PI * 2);
-  ctx.strokeStyle = joy.active ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.15)';
-  ctx.lineWidth   = 2.5;
-  ctx.stroke();
-  ctx.fillStyle   = joy.active ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.03)';
-  ctx.fill();
+  joyCtx.beginPath();
+  joyCtx.arc(base.x, base.y, JR, 0, Math.PI * 2);
+  joyCtx.strokeStyle = joy.active ? 'rgba(255,255,255,0.38)' : 'rgba(255,255,255,0.14)';
+  joyCtx.lineWidth   = 2.5;
+  joyCtx.stroke();
+  joyCtx.fillStyle   = joy.active ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)';
+  joyCtx.fill();
 
-  // Hook cooldown arc on aim joystick base
+  // Hook cooldown arc (right joystick only)
   if (isAim) {
     const ready = myHookCooldown <= 0;
     const frac  = ready ? 1 : 1 - myHookCooldown / HOOK_COOLDOWN_MS;
-    ctx.beginPath();
-    ctx.arc(base.x, base.y, JR - 4, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
-    ctx.strokeStyle = ready ? 'rgba(46,204,113,0.8)' : 'rgba(231,76,60,0.7)';
-    ctx.lineWidth   = 4;
-    ctx.stroke();
-    // Center icon/text
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    if (ready && !joy.active) {
-      ctx.font      = '18px Arial';
-      ctx.fillStyle = 'rgba(46,204,113,0.6)';
-      ctx.fillText('⚓', base.x, base.y);
-    } else if (!ready && !joy.active) {
-      ctx.font      = 'bold 12px Arial';
-      ctx.fillStyle = 'rgba(231,76,60,0.8)';
-      ctx.fillText((myHookCooldown / 1000).toFixed(1), base.x, base.y);
+    joyCtx.beginPath();
+    joyCtx.arc(base.x, base.y, JR - 5, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+    joyCtx.strokeStyle = ready ? 'rgba(46,204,113,0.9)' : 'rgba(231,76,60,0.75)';
+    joyCtx.lineWidth   = 4.5;
+    joyCtx.stroke();
+
+    if (!joy.active) {
+      joyCtx.textAlign    = 'center';
+      joyCtx.textBaseline = 'middle';
+      if (ready) {
+        joyCtx.font      = '19px Arial';
+        joyCtx.fillStyle = 'rgba(46,204,113,0.7)';
+        joyCtx.fillText('⚓', base.x, base.y);
+      } else {
+        joyCtx.font      = 'bold 13px Arial';
+        joyCtx.fillStyle = 'rgba(231,76,60,0.9)';
+        joyCtx.fillText((myHookCooldown / 1000).toFixed(1), base.x, base.y);
+      }
     }
   }
 
   // Thumb
   if (joy.active) {
-    ctx.beginPath();
-    ctx.arc(tx, ty, 22, 0, Math.PI * 2);
-    ctx.fillStyle = isAim ? 'rgba(231,76,60,0.7)' : 'rgba(255,255,255,0.4)';
-    ctx.fill();
+    joyCtx.beginPath();
+    joyCtx.arc(tx, ty, 22, 0, Math.PI * 2);
+    joyCtx.fillStyle = isAim ? 'rgba(231,76,60,0.75)' : 'rgba(255,255,255,0.45)';
+    joyCtx.fill();
   }
 }
 
 function drawJoysticks() {
   joyCtx.clearRect(0, 0, joyCanvas.width, joyCanvas.height);
   if (gameState !== 'playing') return;
-  drawJoystick(joyCtx, moveBase, moveJoy, false);
-  drawJoystick(joyCtx, aimBase,  aimJoy,  true);
+  drawOneJoystick(moveBase, moveJoy, false);
+  drawOneJoystick(aimBase,  aimJoy,  true);
 }
 
 // ── Render loop ───────────────────────────────────────────────────────────────
 async function updatePlayers() {
   const activeIds = new Set(sPlayers.map(p => p.id));
-  for (const id of charEntries.keys()) {
-    if (!activeIds.has(id)) removeChar(id);
-  }
+  for (const id of charEntries.keys()) if (!activeIds.has(id)) removeChar(id);
+
   for (const p of sPlayers) {
     const entry = await getOrCreateChar(p.id, p.team);
-    entry.group.position.lerp(sw(p.x, p.y, 0), 0.25);
-
-    const alive = p.alive;
-    entry.ring.material.opacity = alive ? 0.85 : 0.2;
-
+    entry.group.position.lerp(sw(p.x, p.y, 0), 0.28);
+    entry.ring.material.opacity = p.alive ? 0.85 : 0.2;
     entry.group.traverse(c => {
       if (!c.isMesh || !c.material) return;
-      if (!alive) {
-        c.material.transparent = true;
-        c.material.opacity = 0.3;
-        c.material.depthWrite = false;
+      if (!p.alive) {
+        c.material.transparent = true; c.material.opacity = 0.3; c.material.depthWrite = false;
       } else {
-        c.material.transparent = false;
-        c.material.opacity = 1;
-        c.material.depthWrite = true;
-        c.material.emissiveIntensity = (p.hitFlash > 0) ? 0.9 : (p.id === myId ? 0.22 : 0.12);
+        c.material.transparent = false; c.material.opacity = 1; c.material.depthWrite = true;
+        c.material.emissiveIntensity = p.hitFlash > 0 ? 0.9 : (p.id === myId ? 0.22 : 0.12);
       }
     });
   }
@@ -657,15 +708,15 @@ function updateHooks() {
 
 function animateTorches() {
   const t = Date.now() / 800;
-  torches.forEach((l, i) => { l.intensity = 2.0 + Math.sin(t * (3.1 + i * 0.7)) * 0.5; });
+  torches.forEach((l, i) => { l.intensity = 2.5 + Math.sin(t * (3.1 + i * 0.7)) * 0.6; });
 }
 
-function updateHUD() {
+function updateAimFromJoystick() {
+  if (!aimJoy.active || (Math.abs(aimJoy.nx) < 0.05 && Math.abs(aimJoy.ny) < 0.05)) return;
   const me = sPlayers.find(p => p.id === myId);
-  if (me) {
-    document.getElementById('hud-hp').textContent =
-      '❤'.repeat(me.hp) + '🖤'.repeat(2 - me.hp);
-  }
+  if (!me) return;
+  const target = aimDirToServer(aimJoy.nx, aimJoy.ny);
+  if (target) showAimIndicators(sw(me.x, me.y, 0.6), sw(target.x, target.y, 0.6));
 }
 
 function animate() {
@@ -674,8 +725,14 @@ function animate() {
     updatePlayers();
     updateHooks();
     animateTorches();
-    updateHUD();
+    updateAimFromJoystick();
     drawJoysticks();
+
+    const me = sPlayers.find(p => p.id === myId);
+    if (me) {
+      document.getElementById('hud-hp').textContent =
+        '❤'.repeat(me.hp) + '🖤'.repeat(2 - me.hp);
+    }
   }
   renderer.render(scene, camera);
 }

@@ -15,30 +15,32 @@ app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
 // --- Constants ---
 const TICK_RATE = 30;
-const MAP_W = 800;
-const MAP_H = 600;
-const PLAYER_SPEED = 90;        // slow deliberate movement
-const HOOK_SPEED = 380;         // visible, dodgeable
-const HOOK_RANGE = 360;
-const HOOK_COOLDOWN = 6000;     // 6s like real Pudge Wars
+const MAP_W = 1600;
+const MAP_H = 900;
+const PLAYER_SPEED = 160;
+const HOOK_SPEED = 500;
+const HOOK_RANGE = 600;
+const HOOK_COOLDOWN = 6000;
 const PLAYER_RADIUS = 22;
 const HOOK_HIT_RADIUS = 18;
 
 // Spawn positions: [team0p0, team1p0, team0p1, team1p1]
 const SPAWNS = [
-  { x: 120, y: 120 },
-  { x: MAP_W - 120, y: MAP_H - 120 },
-  { x: 120, y: MAP_H - 120 },
-  { x: MAP_W - 120, y: 120 },
+  { x: 220, y: 220 },
+  { x: MAP_W - 220, y: MAP_H - 220 },
+  { x: 220, y: MAP_H - 220 },
+  { x: MAP_W - 220, y: 220 },
 ];
 
 // Obstacles (rect {x,y,w,h} centered)
 const OBSTACLES = [
-  { x: MAP_W / 2, y: MAP_H / 2, w: 70, h: 70 },
-  { x: MAP_W / 4, y: MAP_H / 4, w: 50, h: 50 },
-  { x: (MAP_W * 3) / 4, y: MAP_H / 4, w: 50, h: 50 },
-  { x: MAP_W / 4, y: (MAP_H * 3) / 4, w: 50, h: 50 },
-  { x: (MAP_W * 3) / 4, y: (MAP_H * 3) / 4, w: 50, h: 50 },
+  { x: MAP_W / 2,       y: MAP_H / 2,       w: 130, h: 130 },
+  { x: MAP_W / 4,       y: MAP_H / 4,       w: 100, h: 100 },
+  { x: (MAP_W * 3) / 4, y: MAP_H / 4,       w: 100, h: 100 },
+  { x: MAP_W / 4,       y: (MAP_H * 3) / 4, w: 100, h: 100 },
+  { x: (MAP_W * 3) / 4, y: (MAP_H * 3) / 4, w: 100, h: 100 },
+  { x: MAP_W / 2,       y: MAP_H / 4,       w:  80, h:  80 },
+  { x: MAP_W / 2,       y: (MAP_H * 3) / 4, w:  80, h:  80 },
 ];
 
 // --- Helpers ---
@@ -319,12 +321,12 @@ function tickBots(room, dt) {
     if (!nearestEnemy) { bot.vx = 0; bot.vy = 0; continue; }
 
     // Slow, wandering movement toward enemy
-    const wander = 80;
+    const wander = 160;
     const t = Date.now() / 1200 + id.charCodeAt(4);
     const dx = nearestEnemy.x - bot.x + Math.sin(t) * wander;
     const dy = nearestEnemy.y - bot.y + Math.cos(t) * wander;
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    const stopDist = 200;
+    const stopDist = 380;
 
     if (nearestDist > stopDist) {
       bot.vx = (dx / len) * PLAYER_SPEED * 0.55;
@@ -440,10 +442,10 @@ io.on('connection', (socket) => {
 
     // Fix spawns after manual team assignment
     const spawns = [
-      { x: 120, y: 120 },
-      { x: MAP_W - 120, y: MAP_H - 120 },
-      { x: 120, y: MAP_H - 120 },
-      { x: MAP_W - 120, y: 120 },
+      { x: 220, y: 220 },
+      { x: MAP_W - 220, y: MAP_H - 220 },
+      { x: 220, y: MAP_H - 220 },
+      { x: MAP_W - 220, y: 220 },
     ];
     let si = 0;
     for (const p of room.players.values()) {
