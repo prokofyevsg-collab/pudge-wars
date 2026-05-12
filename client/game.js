@@ -98,15 +98,31 @@ function addTorch(x, z) {
 // ── GLB loader + model pool ───────────────────────────────────────────────────
 const gltfLoader = new GLTFLoader();
 
-// Pre-load 4 independent model instances (one per possible player).
-// All requests hit the same URL → browser caches after first download.
+// Global animation clips (shared across all character instances, same skeleton)
+let walkClip = null, runClip = null, hookClip = null, dieClip = null;
+
+// When a clip loads late, add it to already-created characters
+function onClipReady(name, clip) {
+  if (!clip) return;
+  for (const entry of charEntries.values()) {
+    if (entry.mixer && entry.actions && !entry.actions[name]) {
+      entry.actions[name] = entry.mixer.clipAction(clip);
+    }
+  }
+}
+
+// Pool of pre-loaded model scenes (one per possible player)
 const pudgePool = [];
 for (let i = 0; i < 4; i++) {
   gltfLoader.load('assets/pudge/pudge-walk.glb', gltf => {
     gltf.scene.traverse(c => { if (c.isMesh) { c.castShadow = c.receiveShadow = true; } });
-    pudgePool.push({ scene: gltf.scene, clip: gltf.animations[0] ?? null });
+    if (!walkClip && gltf.animations[0]) walkClip = gltf.animations[0];
+    pudgePool.push(gltf.scene);
   });
 }
+gltfLoader.load('assets/pudge/pudge-run.glb',  gltf => { runClip  = gltf.animations[0] ?? null; onClipReady('run',  runClip);  });
+gltfLoader.load('assets/pudge/pudge-hook.glb', gltf => { hookClip = gltf.animations[0] ?? null; onClipReady('hook', hookClip); });
+gltfLoader.load('assets/pudge/pudge-die.glb',  gltf => { dieClip  = gltf.animations[0] ?? null; onClipReady('die',  dieClip);  });
 
 function waitForModel() {
   if (pudgePool.length > 0) return Promise.resolve();
@@ -392,12 +408,11 @@ function getOrCreateChar(id, team) {
   ring.userData.isRing = true;
   group.add(ring);
 
-  let mixer = null, walkAction = null;
+  let mixer = null;
+  const actions = {};
 
-  // Pop a pre-loaded model from the pool (pool is filled before game starts)
-  const poolItem = pudgePool.pop();
-  if (poolItem) {
-    const { scene: model, clip } = poolItem;
+  const model = pudgePool.pop() ?? null;
+  if (model) {
     const box  = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const s    = size.y > 0.001 ? 0.85 / size.y : 0.45;
@@ -406,15 +421,26 @@ function getOrCreateChar(id, team) {
     model.position.y = -box2.min.y;
     applyTeamColor(model, color);
     group.add(model);
-    if (clip) {
-      mixer     = new THREE.AnimationMixer(model);
-      walkAction = mixer.clipAction(clip);
-      walkAction.play();
-    }
+
+    mixer = new THREE.AnimationMixer(model);
+    if (walkClip) actions.walk = mixer.clipAction(walkClip);
+    if (runClip)  actions.run  = mixer.clipAction(runClip);
+    if (hookClip) actions.hook = mixer.clipAction(hookClip);
+    if (dieClip)  actions.die  = mixer.clipAction(dieClip);
+
+    // Die and hook play once then hold last frame
+    ['die', 'hook'].forEach(n => {
+      if (actions[n]) { actions[n].setLoop(THREE.LoopOnce, 1); actions[n].clampWhenFinished = true; }
+    });
   }
 
   scene.add(group);
-  const entry = { group, ring, team, mixer, walkAction, prevX: null, prevY: null };
+  const entry = {
+    group, ring, team, mixer, actions,
+    currentAnim: null,
+    prevX: null, prevY: null,
+    prevHasHook: false, hookFiring: false, hookTimer: 0,
+  };
   charEntries.set(id, entry);
   return entry;
 }
@@ -878,6 +904,18 @@ function drawJoysticks() {
   drawOneJoystick(aimBase,  aimJoy,  true);
 }
 
+// ── Animation state machine ───────────────────────────────────────────────────
+function playAnim(entry, name, fade = 0.2, timeScale = 1.0) {
+  const next = entry.actions[name];
+  if (!next) return;
+  next.setEffectiveTimeScale(timeScale);
+  if (entry.currentAnim === name) return;
+  const prev = entry.currentAnim ? entry.actions[entry.currentAnim] : null;
+  next.reset().setEffectiveWeight(1).play();
+  if (prev && fade > 0) next.crossFadeFrom(prev, fade, true);
+  entry.currentAnim = name;
+}
+
 // ── Render loop ───────────────────────────────────────────────────────────────
 function updatePlayers(delta) {
   const activeIds = new Set(sPlayers.map(p => p.id));
@@ -889,24 +927,58 @@ function updatePlayers(delta) {
     entry.group.position.lerp(targetPos, 0.28);
     entry.ring.material.opacity = p.alive ? 0.90 : 0.2;
 
-    // Detect movement and rotate character to face direction
-    const moving = entry.prevX !== null &&
-      (Math.abs(p.x - entry.prevX) > 0.8 || Math.abs(p.y - entry.prevY) > 0.8);
-    if (moving && p.alive) {
-      const dx = p.x - entry.prevX, dy = p.y - entry.prevY;
+    // Movement delta (server units per frame)
+    const hasPrev = entry.prevX !== null;
+    const dx = hasPrev ? p.x - entry.prevX : 0;
+    const dy = hasPrev ? p.y - entry.prevY : 0;
+    const moveDist = Math.sqrt(dx * dx + dy * dy);
+
+    // Face movement direction
+    if (moveDist > 0.5 && p.alive) {
       entry.group.rotation.y = Math.atan2(dx, dy);
     }
     entry.prevX = p.x; entry.prevY = p.y;
 
-    // Animation speed: walking when alive+moving, very slow when idle, paused when dead
-    if (entry.walkAction) {
+    // ── Animation state ──────────────────────────────────────────────────────
+    if (entry.mixer) {
       if (!p.alive) {
-        entry.walkAction.setEffectiveTimeScale(0);
+        // Death — play once and hold
+        playAnim(entry, 'die', 0.15);
       } else {
-        entry.walkAction.setEffectiveTimeScale(moving ? 1.2 : 0.0);
+        // Hook firing window
+        const hasHook = sHooks.some(h => h.ownerId === p.id);
+        if (hasHook && !entry.prevHasHook) {
+          // Hook just launched
+          entry.hookFiring = true;
+          entry.hookTimer  = 0.55;
+          playAnim(entry, 'hook', 0.08);
+        }
+        entry.prevHasHook = hasHook;
+
+        if (entry.hookFiring) {
+          entry.hookTimer -= delta;
+          if (entry.hookTimer <= 0) entry.hookFiring = false;
+        }
+
+        if (!entry.hookFiring) {
+          // Walk vs run: use own joystick for local player, position delta for others
+          const isMe = p.id === myId;
+          const joyLen = isMe ? Math.sqrt(moveJoy.nx ** 2 + moveJoy.ny ** 2) : 0;
+          const speed  = isMe ? joyLen : moveDist; // comparable scales
+
+          if (isMe ? joyLen > 0.55 : moveDist > 2.8) {
+            playAnim(entry, 'run',  0.18);
+          } else if (isMe ? joyLen > 0.08 : moveDist > 0.4) {
+            playAnim(entry, 'walk', 0.22);
+          } else {
+            // Idle — play walk very slowly so character breathes
+            playAnim(entry, 'walk', 0.30, 0.12);
+          }
+        }
       }
+
+      entry.mixer.update(delta);
     }
-    if (entry.mixer) entry.mixer.update(delta);
 
     entry.group.traverse(c => {
       if (!c.isMesh || !c.material || c.userData.isRing) return;
