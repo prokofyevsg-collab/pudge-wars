@@ -519,6 +519,53 @@ function removeChar(id) {
   if (e) { scene.remove(e.group); charEntries.delete(id); }
 }
 
+// ── Heart pickup ──────────────────────────────────────────────────────────────
+let heartGroup = null;
+let sHeart = null;
+
+function makeHeartGroup() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: 0xff2244, emissive: 0xcc0022, emissiveIntensity: 0.6 });
+  const r = 0.13;
+  for (const sx of [-1, 1]) {
+    const b = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 10), mat);
+    b.position.set(sx * r * 0.65, 0, 0);
+    b.castShadow = true;
+    g.add(b);
+  }
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(r * 1.35, r * 2.4, 8), mat);
+  cone.position.y = -r * 1.35;
+  cone.rotation.z = Math.PI;
+  cone.castShadow = true;
+  g.add(cone);
+  g.add(new THREE.PointLight(0xff2244, 6, 3.5));
+  return g;
+}
+
+function updateHeartItem(d) {
+  if (d.heart) {
+    if (!heartGroup) { heartGroup = makeHeartGroup(); scene.add(heartGroup); }
+    sHeart = d.heart;
+  } else {
+    if (heartGroup) { scene.remove(heartGroup); heartGroup = null; }
+    sHeart = null;
+  }
+}
+
+function addPickupFeed(pickup) {
+  const feed = document.getElementById('kill-feed');
+  const el = document.createElement('div');
+  el.className = 'kill-entry';
+  el.style.borderColor = '#ff2244';
+  el.innerHTML = `<span style="color:#ff4466">❤</span>
+    <span style="color:${TEAM_HEX[pickup.playerTeam]}">${pickup.playerName}</span>
+    <span style="color:#aaa;font-size:11px">+1 HP</span>`;
+  feed.prepend(el);
+  setTimeout(() => { el.style.opacity = '0'; }, 2500);
+  setTimeout(() => { el.remove(); }, 3800);
+  while (feed.children.length > 5) feed.lastChild.remove();
+}
+
 // ── Hook geometry ─────────────────────────────────────────────────────────────
 function makeHookHead() {
   const mat = new THREE.MeshStandardMaterial({ color: 0xb8c0cc, metalness: 0.97, roughness: 0.05 });
@@ -789,14 +836,14 @@ function connectSocket() {
     const me = d.players.find(p => p.id === myId);
     if (me) {
       myHookCooldown = me.hookCooldown ?? 0;
-      // Screen shake when hit
       if (me.hitFlash > 0 && (!prevMe || prevMe.hitFlash === 0)) triggerShake(380);
-      // Dead overlay
       const deadEl = document.getElementById('dead-overlay');
       if (!me.alive) deadEl.classList.add('show'); else deadEl.classList.remove('show');
+      document.getElementById('hud-hp').textContent = '❤'.repeat(Math.max(0, me.hp));
     }
-    // Kill feed
     if (d.kills?.length) d.kills.forEach(addKillFeed);
+    if (d.pickups?.length) d.pickups.forEach(addPickupFeed);
+    updateHeartItem(d);
   });
 
   socket.on('player_left', d => {
@@ -828,12 +875,15 @@ function cleanupGame() {
   hookLines.forEach((_, id) => removeHookLine(id));
   if (mapGroup) { scene.remove(mapGroup); mapGroup = null; }
   mapBuilt = false; sPlayers = []; sHooks = [];
+  if (heartGroup) { scene.remove(heartGroup); heartGroup = null; }
+  sHeart = null;
   hideAimIndicators();
   torches.forEach(l => scene.remove(l));
   torches.length = 0;
   shakeUntil = 0; document.body.style.transform = '';
   document.getElementById('dead-overlay').classList.remove('show');
   document.getElementById('kill-feed').innerHTML = '';
+  document.getElementById('hud-hp').textContent = '❤❤';
 }
 
 // ── Dual joystick ─────────────────────────────────────────────────────────────
@@ -1045,7 +1095,7 @@ function drawNameLabels() {
     const isMe    = p.id === myId;
     const nameCol = TEAM_HEX[p.team];
     const barW    = 56, barH = 5;
-    const hpFrac  = Math.max(0, p.hp) / 2;
+    const hpFrac  = Math.min(1, Math.max(0, p.hp) / 2);
     const baseY   = sp.y;
 
     // HP bar background
@@ -1053,7 +1103,7 @@ function drawNameLabels() {
     joyCtx.fillRect(sp.x - barW / 2 - 1, baseY - 2, barW + 2, barH + 2);
     joyCtx.fillStyle = '#2a2a2a';
     joyCtx.fillRect(sp.x - barW / 2, baseY - 1, barW, barH);
-    joyCtx.fillStyle = p.hp > 1 ? '#2ecc71' : '#e74c3c';
+    joyCtx.fillStyle = p.hp >= 3 ? '#f39c12' : p.hp > 1 ? '#2ecc71' : '#e74c3c';
     joyCtx.fillRect(sp.x - barW / 2, baseY - 1, barW * hpFrac, barH);
 
     // Name label
@@ -1215,14 +1265,15 @@ function animate() {
     updatePlayers(delta);
     updateHooks();
     animateTorches();
+    // Animate heart (smooth bobbing/spin, 60 fps)
+    if (heartGroup && sHeart) {
+      const t = Date.now();
+      heartGroup.position.set(sHeart.x * S, 0.55 + Math.sin(t / 500) * 0.1, sHeart.y * S);
+      heartGroup.rotation.y = t / 900;
+    }
   }
   if (gameState === 'playing') {
     updateAimFromJoystick();
-    const me = sPlayers.find(p => p.id === myId);
-    if (me) {
-      document.getElementById('hud-hp').textContent =
-        '❤'.repeat(me.hp) + '🖤'.repeat(2 - me.hp);
-    }
   }
   drawJoysticks();
   renderer.render(scene, camera);

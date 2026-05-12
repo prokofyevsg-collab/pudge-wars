@@ -106,6 +106,9 @@ class GameRoom {
     this.hooks = new Map();   // socketId -> hook
     this.state = 'waiting';
     this.pendingKills = [];
+    this.pendingPickups = [];
+    this.heart = null;
+    this.heartTimer = 15; // seconds until first spawn
   }
 
   addPlayer(socketId, user) {
@@ -277,6 +280,27 @@ class GameRoom {
       if (p.hitFlash > 0) p.hitFlash = Math.max(0, p.hitFlash - dt * 1000);
     }
 
+    // Heart item
+    this.heartTimer -= dt;
+    if (this.heartTimer <= 0 && !this.heart) {
+      this.heart = {
+        x: MAP_W / 2 + (Math.random() - 0.5) * 200,
+        y: MAP_H / 2 + (Math.random() - 0.5) * 200,
+      };
+    }
+    if (this.heart) {
+      for (const p of this.players.values()) {
+        if (!p.alive) continue;
+        if (dist(p.x, p.y, this.heart.x, this.heart.y) < PLAYER_RADIUS + 35) {
+          p.hp = Math.min(p.hp + 1, 3);
+          this.pendingPickups.push({ playerName: p.name, playerTeam: p.team });
+          this.heart = null;
+          this.heartTimer = 20;
+          break;
+        }
+      }
+    }
+
     // Check win condition
     const teamAlive = new Map();
     for (const p of this.players.values()) {
@@ -292,6 +316,7 @@ class GameRoom {
 
   snapshot() {
     const kills = this.pendingKills.splice(0);
+    const pickups = this.pendingPickups.splice(0);
     return {
       players: [...this.players.values()].map(p => ({
         id: p.id,
@@ -312,6 +337,8 @@ class GameRoom {
         caughtId: h.caughtId,
       })),
       kills,
+      pickups,
+      heart: this.heart ? { x: this.heart.x, y: this.heart.y } : null,
     };
   }
 }
