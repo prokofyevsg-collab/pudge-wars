@@ -28,6 +28,17 @@
     .btn-green { background: #27ae60; }
     .btn:active { filter: brightness(0.75); }
 
+    /* ─ Loading spinner ─ */
+    .spinner {
+      width: 52px; height: 52px;
+      border: 5px solid rgba(255,255,255,0.12);
+      border-top-color: #e74c3c;
+      border-radius: 50%;
+      animation: spin-r 0.75s linear infinite;
+    }
+    @keyframes spin-r { to { transform: rotate(360deg); } }
+    .loading-text { color: #999; font-size: 15px; margin-top: 4px; }
+
     /* ─ In-game HUD ─ */
     #hud { position: absolute; top: 0; left: 0; right: 0; display: none;
            padding: 8px 14px; pointer-events: none; }
@@ -36,6 +47,22 @@
 
     /* ─ Joystick overlay canvas ─ */
     #joy-canvas { position: absolute; inset: 0; pointer-events: none; display: none; }
+
+    /* ─ Countdown overlay ─ */
+    #countdown-overlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 80;
+      align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.38);
+      pointer-events: none;
+    }
+    #countdown-num {
+      font-family: 'Arial Black', sans-serif;
+      font-size: clamp(90px, 22vw, 170px);
+      color: #fff;
+      text-shadow: 0 0 60px rgba(255,255,255,0.4), 3px 3px 0 #000;
+      will-change: transform, opacity;
+    }
 
     /* ─ Portrait rotation overlay ─ */
     #rotate-overlay {
@@ -75,6 +102,12 @@
       <p id="search-text" style="color:#fff;font-size:22px;text-align:center">Поиск игроков...</p>
     </div>
 
+    <!-- Loading models -->
+    <div id="screen-loading" class="screen">
+      <div class="spinner"></div>
+      <p class="loading-text">Загрузка...</p>
+    </div>
+
     <!-- Game Over -->
     <div id="screen-gameover" class="screen">
       <h1 id="gameover-title">ПОБЕДА!</h1>
@@ -86,6 +119,11 @@
   <div id="hud">
     <div id="hud-hp">❤❤</div>
     <div id="hud-team"></div>
+  </div>
+
+  <!-- Countdown 3-2-1 -->
+  <div id="countdown-overlay">
+    <div id="countdown-num">3</div>
   </div>
 
   <!-- Portrait mode warning -->

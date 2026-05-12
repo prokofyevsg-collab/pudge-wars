@@ -95,8 +95,52 @@ function addTorch(x, z) {
   torches.push(l);
 }
 
-// ── GLB loader ────────────────────────────────────────────────────────────────
+// ── GLB loader + model pool ───────────────────────────────────────────────────
 const gltfLoader = new GLTFLoader();
+
+// Pre-load 4 independent model instances (one per possible player).
+// All requests hit the same URL → browser caches after first download.
+const pudgePool = [];
+for (let i = 0; i < 4; i++) {
+  gltfLoader.load('assets/pudge/pudge-walk.glb', gltf => {
+    gltf.scene.traverse(c => { if (c.isMesh) { c.castShadow = c.receiveShadow = true; } });
+    pudgePool.push({ scene: gltf.scene, clip: gltf.animations[0] ?? null });
+  });
+}
+
+function waitForModel() {
+  if (pudgePool.length > 0) return Promise.resolve();
+  return new Promise(resolve => {
+    const id = setInterval(() => { if (pudgePool.length > 0) { clearInterval(id); resolve(); } }, 60);
+  });
+}
+
+// ── Countdown 3-2-1 ───────────────────────────────────────────────────────────
+async function showCountdown() {
+  const overlay = document.getElementById('countdown-overlay');
+  const el      = document.getElementById('countdown-num');
+  overlay.style.display = 'flex';
+
+  const steps = [['3','#fff'],['2','#fff'],['1','#e74c3c'],['GO!','#2ecc71']];
+  for (const [text, color] of steps) {
+    el.style.transition = 'none';
+    el.style.color      = color;
+    el.style.opacity    = '0';
+    el.style.transform  = 'scale(1.6)';
+    el.textContent      = text;
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    el.style.transition = 'transform 0.75s cubic-bezier(.17,.67,.4,1.2), opacity 0.18s ease';
+    el.style.opacity    = '1';
+    el.style.transform  = 'scale(1)';
+    const hold = text === 'GO!' ? 520 : 940;
+    await new Promise(r => setTimeout(r, hold));
+  }
+
+  el.style.transition = 'opacity 0.3s ease';
+  el.style.opacity    = '0';
+  await new Promise(r => setTimeout(r, 320));
+  overlay.style.display = 'none';
+}
 
 // ── Map ───────────────────────────────────────────────────────────────────────
 let mapGroup = null;
@@ -348,44 +392,30 @@ function getOrCreateChar(id, team) {
   ring.userData.isRing = true;
   group.add(ring);
 
-  // Процедурный Pudge пока GLB грузится
-  const fallbackBody = makePudgeBody(color);
-  group.add(fallbackBody);
+  let mixer = null, walkAction = null;
 
-  scene.add(group);
-  const entry = { group, ring, team, mixer: null, walkAction: null, prevX: null, prevY: null };
-  charEntries.set(id, entry);
-
-  // Загружаем GLB (браузер кэширует — повторные вызовы без сети)
-  gltfLoader.load('assets/pudge/pudge-walk.glb', gltf => {
-    if (!charEntries.has(id)) return; // персонаж уже удалён
-    const model = gltf.scene;
-    model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
-
-    // Авто-масштаб: подгоняем высоту персонажа под 0.85 world units
-    const box = new THREE.Box3().setFromObject(model);
+  // Pop a pre-loaded model from the pool (pool is filled before game starts)
+  const poolItem = pudgePool.pop();
+  if (poolItem) {
+    const { scene: model, clip } = poolItem;
+    const box  = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
-    const targetH = 0.85;
-    const s = size.y > 0.001 ? targetH / size.y : 0.45;
+    const s    = size.y > 0.001 ? 0.85 / size.y : 0.45;
     model.scale.setScalar(s);
-    // Поднимаем ноги на уровень земли
     const box2 = new THREE.Box3().setFromObject(model);
     model.position.y = -box2.min.y;
-
-    console.log(`pudge loaded: ${size.x.toFixed(2)}x${size.y.toFixed(2)}x${size.z.toFixed(2)} scale=${s.toFixed(3)}`);
-
     applyTeamColor(model, color);
-    group.remove(fallbackBody);
     group.add(model);
-    if (gltf.animations[0]) {
-      const mixer = new THREE.AnimationMixer(model);
-      const walkAction = mixer.clipAction(gltf.animations[0]);
+    if (clip) {
+      mixer     = new THREE.AnimationMixer(model);
+      walkAction = mixer.clipAction(clip);
       walkAction.play();
-      entry.mixer = mixer;
-      entry.walkAction = walkAction;
     }
-  }, undefined, err => console.warn('pudge GLB load error:', err));
+  }
 
+  scene.add(group);
+  const entry = { group, ring, team, mixer, walkAction, prevX: null, prevY: null };
+  charEntries.set(id, entry);
   return entry;
 }
 
@@ -602,8 +632,8 @@ function connectSocket() {
     document.getElementById('search-text').textContent = `Поиск игроков...\n${d.inQueue} / 4`;
   });
 
-  socket.on('game_start', d => {
-    myId = socket.id; gameState = 'playing';
+  socket.on('game_start', async d => {
+    myId = socket.id;
     if (d.mapW) { MAP_W = d.mapW; MAP_H = d.mapH; }
     positionCamera();
     sPlayers = d.players; sHooks = [];
@@ -615,6 +645,21 @@ function connectSocket() {
       el.style.color = TEAM_HEX[me.team];
     }
     if (!mapBuilt) { buildMap(d.obstacles); mapBuilt = true; }
+
+    // Show loading screen until at least one model is ready
+    showScreen('loading');
+    await waitForModel();
+
+    // Canvas is now visible — activate playing state so scene renders
+    gameState = 'playing';
+    // Hide overlay screens without showing HUD/joystick yet
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('overlay').style.pointerEvents = 'none';
+
+    // Countdown 3-2-1-GO over the visible arena
+    await showCountdown();
+
+    // Now show HUD and joysticks
     showScreen('game');
   });
 
