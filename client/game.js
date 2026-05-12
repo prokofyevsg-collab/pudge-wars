@@ -32,7 +32,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 // ── Scene ─────────────────────────────────────────────────────────────────────
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a0010);
+scene.background = new THREE.Color(0x4a7faa);
 // No fog — isometric view shows the whole scene from far away; fog kills visibility
 
 // ── Camera ────────────────────────────────────────────────────────────────────
@@ -62,10 +62,10 @@ positionCamera();
 
 // ── Lighting ──────────────────────────────────────────────────────────────────
 // Strong ambient so no face is ever fully dark
-scene.add(new THREE.AmbientLight(0xfff0e0, 1.4));
+scene.add(new THREE.AmbientLight(0xeef4ff, 1.4));
 
 // Sky / ground hemisphere
-const hemi = new THREE.HemisphereLight(0xffe8a0, 0x804820, 1.0);
+const hemi = new THREE.HemisphereLight(0x99ccff, 0x3d8028, 1.0);
 scene.add(hemi);
 
 // Key directional (casts shadows)
@@ -125,72 +125,90 @@ function buildMap(obstacles) {
   mapGroup = new THREE.Group();
   const mw = MAP_W * S, mh = MAP_H * S;
 
-  // Floor
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(mw, mh, 32, 18),
-    new THREE.MeshLambertMaterial({ color: 0xb06030 })
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.set(mw / 2, 0, mh / 2);
-  floor.receiveShadow = true;
-  mapGroup.add(floor);
+  const mGrass = new THREE.MeshLambertMaterial({ color: 0x4a8530 });
+  const mDirt  = new THREE.MeshLambertMaterial({ color: 0x8a5c28 });
+  const mPath  = new THREE.MeshLambertMaterial({ color: 0xa07040 });
+  const mWater = new THREE.MeshLambertMaterial({ color: 0x2277aa });
+  const mStone = new THREE.MeshLambertMaterial({ color: 0x6d6458 });
+  const mRock  = new THREE.MeshLambertMaterial({ color: 0x857a6a });
+  const mTrunk = new THREE.MeshLambertMaterial({ color: 0x5a3510 });
+  const mLeaf  = new THREE.MeshLambertMaterial({ color: 0x296618 });
 
-  // Tile grid
-  const tileGrid = new THREE.Mesh(
-    new THREE.PlaneGeometry(mw, mh, mw / 0.5, mh / 0.5),
-    new THREE.MeshBasicMaterial({ color: 0x5a3010, wireframe: true, transparent: true, opacity: 0.10 })
-  );
-  tileGrid.rotation.x = -Math.PI / 2;
-  tileGrid.position.set(mw / 2, 0.003, mh / 2);
-  mapGroup.add(tileGrid);
-
-  // Perimeter walls
-  const wallMat  = new THREE.MeshLambertMaterial({ color: 0x5a4878 });
-  const wallCapM = new THREE.MeshLambertMaterial({ color: 0x8a7aaa });
-  const WH = 1.2, WT = 0.4;
-  [[mw / 2, WH / 2, -WT / 2,       mw + WT * 2, WH, WT],
-   [mw / 2, WH / 2, mh + WT / 2,   mw + WT * 2, WH, WT],
-   [-WT / 2, WH / 2, mh / 2,        WT, WH, mh],
-   [mw + WT / 2, WH / 2, mh / 2,    WT, WH, mh]].forEach(([x, y, z, w, h, d]) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
-    m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
+  function flat(x, z, w, d, mat, y) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+    m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); m.receiveShadow = true;
     mapGroup.add(m);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, d), wallCapM);
-    cap.position.set(x, h + 0.035, z);
-    mapGroup.add(cap);
-  });
+  }
+  function addTree(tx, tz) {
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.11, 0.7, 7), mTrunk);
+    trunk.position.set(tx, 0.35, tz); trunk.castShadow = true; mapGroup.add(trunk);
+    const crown = new THREE.Mesh(new THREE.SphereGeometry(0.38, 8, 6), mLeaf);
+    crown.scale.y = 1.25; crown.position.set(tx, 1.05, tz); crown.castShadow = true; mapGroup.add(crown);
+  }
 
-  // Obstacle pillars
-  const obsMat  = new THREE.MeshLambertMaterial({ color: 0x625278 });
-  const obsCapM = new THREE.MeshLambertMaterial({ color: 0x9a88bc });
+  // Grass base
+  flat(mw / 2, mh / 2, mw, mh, mGrass, 0);
+
+  // Central dirt battle lane
+  const laneH = mh * 0.54, laneZ = mh / 2;
+  flat(mw / 2, laneZ, mw, laneH, mDirt, 0.002);
+  flat(mw / 2, laneZ - laneH / 2 + 0.25, mw, 0.50, mPath, 0.003);
+  flat(mw / 2, laneZ + laneH / 2 - 0.25, mw, 0.50, mPath, 0.003);
+
+  // River through lane center
+  const rH = laneH * 0.30;
+  flat(mw / 2, laneZ, mw, rH, mWater, 0.006);
+  flat(mw / 2, laneZ - rH / 2 - 0.18, mw, 0.36, mStone, 0.004);
+  flat(mw / 2, laneZ + rH / 2 + 0.18, mw, 0.36, mStone, 0.004);
+
+  // Central fountain
+  const fMat = new THREE.MeshLambertMaterial({ color: 0x786e60 });
+  const fBase = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.75, 0.22, 16), fMat);
+  fBase.position.set(mw / 2, 0.11, laneZ); fBase.castShadow = true; mapGroup.add(fBase);
+  const fPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.78, 12), fMat);
+  fPillar.position.set(mw / 2, 0.60, laneZ); fPillar.castShadow = true; mapGroup.add(fPillar);
+  const fBowl = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.12, 8, 24), fMat);
+  fBowl.rotation.x = Math.PI / 2; fBowl.position.set(mw / 2, 1.00, laneZ); mapGroup.add(fBowl);
+  const fWater = new THREE.Mesh(new THREE.CircleGeometry(0.40, 20),
+    new THREE.MeshBasicMaterial({ color: 0x55bbff, transparent: true, opacity: 0.78 }));
+  fWater.rotation.x = -Math.PI / 2; fWater.position.set(mw / 2, 1.02, laneZ); mapGroup.add(fWater);
+
+  // Trees in grass zones (above and below lane)
+  const zLo = laneZ - laneH / 2, zHi = laneZ + laneH / 2;
+  for (let i = 0; i < 10; i++) {
+    const tx = 0.5 + (i / 9) * (mw - 1.0);
+    addTree(tx, 0.45);
+    addTree(tx, mh - 0.45);
+    if (i % 2 === 0) addTree(tx, zLo - 0.5);
+    if (i % 2 === 1) addTree(tx, zHi + 0.5);
+  }
+
+  // Rock obstacles (from server) — rendered as natural rocks
   obstacles.forEach(o => {
-    const ox = o.x * S, oz = o.y * S, ow = o.w * S, oh = o.h * S, BH = 1.0;
-    const shadow = new THREE.Mesh(
-      new THREE.PlaneGeometry(ow + 0.2, oh + 0.2),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 })
+    const ox = o.x * S, oz = o.y * S, ow = o.w * S, od = o.h * S;
+    const rh = 0.5 + Math.abs(Math.sin(ox * 5.3 + oz * 7.1)) * 0.35;
+    const radius = Math.max(ow, od) * 0.48;
+    const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(radius, 1), mRock);
+    rock.scale.set(ow / (radius * 2), rh / (radius * 2), od / (radius * 2));
+    rock.rotation.y = Math.abs(Math.sin(ox * 3.7 + oz * 11.3)) * Math.PI * 2;
+    rock.position.set(ox, rh * 0.45, oz);
+    rock.castShadow = true; rock.receiveShadow = true; mapGroup.add(rock);
+    const shdw = new THREE.Mesh(
+      new THREE.CircleGeometry(Math.max(ow, od) * 0.55, 10),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 })
     );
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.set(ox, 0.002, oz);
-    mapGroup.add(shadow);
-    const block = new THREE.Mesh(new THREE.BoxGeometry(ow, BH, oh), obsMat);
-    block.position.set(ox, BH / 2, oz); block.castShadow = true; block.receiveShadow = true;
-    mapGroup.add(block);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(ow, 0.08, oh), obsCapM);
-    cap.position.set(ox, BH + 0.04, oz);
-    mapGroup.add(cap);
+    shdw.rotation.x = -Math.PI / 2; shdw.position.set(ox, 0.001, oz); mapGroup.add(shdw);
   });
 
   scene.add(mapGroup);
 
-  // Torches at corners
+  // Lights: fountain glow + orange torches at lane corners
   torches.length = 0;
-  addTorch(0.6, 0.6);
-  addTorch(mw - 0.6, mh - 0.6);
-  addTorch(0.6, mh - 0.6);
-  addTorch(mw - 0.6, 0.6);
-  // Extra torches along walls for better coverage
-  addTorch(mw / 2, 0.6);
-  addTorch(mw / 2, mh - 0.6);
+  const fl = new THREE.PointLight(0x44aaff, 3.5, 7);
+  fl.position.set(mw / 2, 2.0, laneZ); scene.add(fl); torches.push(fl);
+  addTorch(mw * 0.22, zLo - 0.2); addTorch(mw * 0.78, zLo - 0.2);
+  addTorch(mw * 0.22, zHi + 0.2); addTorch(mw * 0.78, zHi + 0.2);
+  addTorch(mw * 0.50, zLo - 0.2); addTorch(mw * 0.50, zHi + 0.2);
 }
 
 // ── Characters ────────────────────────────────────────────────────────────────
@@ -727,7 +745,13 @@ function updateHooks() {
 
 function animateTorches() {
   const t = Date.now() / 800;
-  torches.forEach((l, i) => { l.intensity = 2.5 + Math.sin(t * (3.1 + i * 0.7)) * 0.6; });
+  torches.forEach((l, i) => {
+    if (l.color.b > l.color.r) {
+      l.intensity = 3.2 + Math.sin(t * 1.4) * 0.5; // fountain: gentle blue pulse
+    } else {
+      l.intensity = 2.5 + Math.sin(t * (3.1 + i * 0.7)) * 0.6; // torch: flicker
+    }
+  });
 }
 
 function updateAimFromJoystick() {
