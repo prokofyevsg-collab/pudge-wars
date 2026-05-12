@@ -316,6 +316,72 @@ class GameRoom {
   }
 }
 
+// --- Lobby ---
+class Lobby {
+  constructor(id, leaderId) {
+    this.id = id;
+    this.leaderId = leaderId;
+    this.slots = [null, null, null, null]; // {socketId?, name, isBot, team}
+  }
+  addHuman(socketId, name) {
+    const i = this.slots.findIndex(s => s === null);
+    if (i < 0) return -1;
+    this.slots[i] = { socketId, name, isBot: false, team: i % 2 };
+    return i;
+  }
+  addBot() {
+    const i = this.slots.findIndex(s => s === null);
+    if (i < 0) return -1;
+    const names = ['Алёша', 'Борис', 'Вася', 'Гриша'];
+    this.slots[i] = { socketId: null, name: `Бот ${names[i]}`, isBot: true, team: i % 2 };
+    return i;
+  }
+  removeHuman(socketId) {
+    const i = this.slots.findIndex(s => s?.socketId === socketId);
+    if (i >= 0) this.slots[i] = null;
+  }
+  isFull()       { return this.slots.every(s => s !== null); }
+  hasEmpty()     { return this.slots.some(s => s === null); }
+  humanSockets() { return this.slots.filter(s => s && !s.isBot).map(s => s.socketId); }
+  forClient()    {
+    return { id: this.id, leaderId: this.leaderId,
+             slots: this.slots.map(s => s ? { name: s.name, isBot: s.isBot, team: s.team } : null) };
+  }
+}
+
+const lobbies = new Map();
+let openLobbyId = null;
+
+function getOrCreateLobby(leaderId) {
+  if (openLobbyId) {
+    const l = lobbies.get(openLobbyId);
+    if (l && l.hasEmpty()) return l;
+    openLobbyId = null;
+  }
+  const id = `lobby_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const l = new Lobby(id, leaderId);
+  lobbies.set(id, l);
+  openLobbyId = id;
+  return l;
+}
+
+function broadcastLobby(lobby) {
+  lobby.humanSockets().forEach(sid => io.to(sid).emit('lobby_update', lobby.forClient()));
+}
+
+function leaveLobby(socket) {
+  const lobby = lobbies.get(socket.data.lobbyId);
+  if (!lobby) { socket.data.lobbyId = null; return; }
+  lobby.removeHuman(socket.id);
+  socket.data.lobbyId = null;
+  if (lobby.humanSockets().length === 0) {
+    lobbies.delete(lobby.id);
+    if (openLobbyId === lobby.id) openLobbyId = null;
+  } else {
+    broadcastLobby(lobby);
+  }
+}
+
 // --- Bot AI ---
 function tickBots(room, dt) {
   for (const [id, bot] of room.players) {
@@ -429,20 +495,8 @@ function startRoom(room, roomId, sockets) {
   room._readyTimeout = setTimeout(() => startGameLoop(room, roomId), 20000);
 }
 
-// --- Matchmaking queue ---
-let queue = [];
+// --- Rooms ---
 const rooms = new Map();
-
-function tryMatchmaking() {
-  while (queue.length >= 4) {
-    const slots = queue.splice(0, 4);
-    const roomId = `room_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const room = new GameRoom(roomId);
-
-    slots.forEach(({ socket, user }) => room.addPlayer(socket.id, user));
-    startRoom(room, roomId, slots.map(s => s.socket));
-  }
-}
 
 // --- Socket.io ---
 io.on('connection', (socket) => {
@@ -482,12 +536,62 @@ io.on('connection', (socket) => {
     startRoom(room, roomId, [socket]);
   });
 
-  socket.on('join_queue', (data) => {
-    // Remove any existing queue entry for this socket
-    queue = queue.filter(q => q.socket.id !== socket.id);
-    queue.push({ socket, user: data?.user });
-    socket.emit('queue_status', { inQueue: queue.length });
-    tryMatchmaking();
+  socket.on('join_lobby', (data) => {
+    if (socket.data.lobbyId) leaveLobby(socket);
+    const name = data?.user?.first_name || 'Игрок';
+    const lobby = getOrCreateLobby(socket.id);
+    lobby.addHuman(socket.id, name);
+    socket.data.lobbyId = lobby.id;
+    if (!lobby.hasEmpty()) openLobbyId = null;
+    socket.emit('lobby_update', lobby.forClient());
+    broadcastLobby(lobby);
+  });
+
+  socket.on('add_bot_to_lobby', () => {
+    const lobby = lobbies.get(socket.data.lobbyId);
+    if (!lobby || !lobby.hasEmpty()) return;
+    lobby.addBot();
+    if (!lobby.hasEmpty()) openLobbyId = null;
+    broadcastLobby(lobby);
+  });
+
+  socket.on('leave_lobby', () => {
+    if (socket.data.lobbyId) leaveLobby(socket);
+  });
+
+  socket.on('start_lobby', () => {
+    const lobby = lobbies.get(socket.data.lobbyId);
+    if (!lobby || !lobby.isFull()) return;
+
+    const roomId = `room_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const room = new GameRoom(roomId);
+    const humanSockets = [];
+
+    lobby.slots.forEach((slot, i) => {
+      if (!slot) return;
+      if (slot.isBot) {
+        const botId = `bot_${i}_${roomId}`;
+        room.players.set(botId, {
+          id: botId, name: slot.name, isBot: true, reactionTimer: 2.0,
+          x: SPAWNS[i].x, y: SPAWNS[i].y, vx: 0, vy: 0,
+          team: slot.team, hp: 2, alive: true, hookCooldown: 0,
+        });
+      } else {
+        const sock = io.sockets.sockets.get(slot.socketId);
+        if (!sock) return;
+        room.players.set(slot.socketId, {
+          id: slot.socketId, name: slot.name,
+          x: SPAWNS[i].x, y: SPAWNS[i].y, vx: 0, vy: 0,
+          team: slot.team, hp: 2, alive: true, hookCooldown: 0,
+        });
+        sock.data.lobbyId = null;
+        humanSockets.push(sock);
+      }
+    });
+
+    lobbies.delete(lobby.id);
+    if (openLobbyId === lobby.id) openLobbyId = null;
+    startRoom(room, roomId, humanSockets);
   });
 
   socket.on('player_ready', () => {
@@ -509,7 +613,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    queue = queue.filter(q => q.socket.id !== socket.id);
+    if (socket.data.lobbyId) leaveLobby(socket);
     const roomId = socket.data.roomId;
     if (!roomId) return;
     const room = rooms.get(roomId);

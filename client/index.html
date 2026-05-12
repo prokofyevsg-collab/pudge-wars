@@ -28,6 +28,17 @@
     .btn-green { background: #27ae60; }
     .btn:active { filter: brightness(0.75); }
 
+    /* ─ Lobby slots ─ */
+    .lobby-slot {
+      width: 122px; min-height: 62px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px; padding: 8px 6px;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 4px;
+      transition: border-color 0.2s;
+    }
+
     /* ─ Loading spinner ─ */
     .spinner {
       width: 52px; height: 52px;
@@ -126,9 +137,24 @@
       <button class="btn btn-green" id="btn-bots">ИГРАТЬ vs БОТЫ</button>
     </div>
 
-    <!-- Searching -->
-    <div id="screen-search" class="screen">
-      <p id="search-text" style="color:#fff;font-size:22px;text-align:center">Поиск игроков...</p>
+    <!-- Lobby -->
+    <div id="screen-lobby" class="screen">
+      <p style="color:#fff;font-size:19px;font-family:'Arial Black',sans-serif;letter-spacing:1px">ПОИСК ИГРЫ 2v2</p>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="text-align:center">
+          <div style="color:#e74c3c;font-size:11px;font-weight:bold;margin-bottom:6px;letter-spacing:1px">🔴 КРАСНЫЕ</div>
+          <div id="lobby-slot-0" class="lobby-slot"></div>
+          <div id="lobby-slot-2" class="lobby-slot" style="margin-top:8px"></div>
+        </div>
+        <div style="width:1px;background:rgba(255,255,255,0.1);align-self:stretch;margin-top:22px"></div>
+        <div style="text-align:center">
+          <div style="color:#2980b9;font-size:11px;font-weight:bold;margin-bottom:6px;letter-spacing:1px">🔵 СИНИЕ</div>
+          <div id="lobby-slot-1" class="lobby-slot"></div>
+          <div id="lobby-slot-3" class="lobby-slot" style="margin-top:8px"></div>
+        </div>
+      </div>
+      <button class="btn btn-green" id="btn-start-lobby" style="display:none">▶ НАЧАТЬ ИГРУ</button>
+      <button class="btn" id="btn-leave-lobby">ОТМЕНА</button>
     </div>
 
     <!-- Loading models -->

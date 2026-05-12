@@ -737,15 +737,14 @@ function connectSocket() {
   socket.on('connect', () => {
     myId = socket.id;
     if (mode === 'bots') {
-      document.getElementById('search-text').textContent = 'Подготовка ботов...';
       socket.emit('play_vs_bots', { user: tgUser });
     } else {
-      socket.emit('join_queue', { user: tgUser });
+      socket.emit('join_lobby', { user: tgUser });
     }
   });
 
-  socket.on('queue_status', d => {
-    document.getElementById('search-text').textContent = `Поиск игроков...\n${d.inQueue} / 4`;
+  socket.on('lobby_update', state => {
+    renderLobbySlots(state);
   });
 
   socket.on('game_start', async d => {
@@ -817,7 +816,8 @@ function connectSocket() {
   });
 
   socket.on('disconnect', () => {
-    if (gameState === 'playing') { cleanupGame(); showScreen('menu'); }
+    if (gameState === 'playing' || gameState === 'countdown') { cleanupGame(); showScreen('menu'); }
+    else if (gameState === 'lobby') { gameState = 'menu'; showScreen('menu'); }
   });
 }
 
@@ -1243,18 +1243,50 @@ window.addEventListener('resize', () => {
   updateJoyBases();
 });
 
+// ── Lobby UI ──────────────────────────────────────────────────────────────────
+function renderLobbySlots(state) {
+  [0, 1, 2, 3].forEach(idx => {
+    const el = document.getElementById(`lobby-slot-${idx}`);
+    if (!el) return;
+    const slot = state.slots[idx];
+    const teamColor = TEAM_HEX[idx % 2];
+    el.style.borderColor = slot ? `${teamColor}99` : 'rgba(255,255,255,0.12)';
+    if (slot) {
+      el.innerHTML = `<div style="font-size:20px">${slot.isBot ? '🤖' : '👤'}</div>
+        <div style="color:#fff;font-size:12px;font-weight:bold;max-width:108px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${slot.name}</div>`;
+    } else {
+      el.innerHTML = `<div style="color:#555;font-size:11px;margin-bottom:3px">Свободно</div>
+        <button style="font-size:11px;color:#bbb;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.18);border-radius:4px;padding:3px 9px;cursor:pointer">+ Бот</button>`;
+      el.querySelector('button').addEventListener('click', () => socket?.emit('add_bot_to_lobby'));
+    }
+  });
+  const allFilled = state.slots.every(s => s !== null);
+  const startBtn = document.getElementById('btn-start-lobby');
+  if (startBtn) startBtn.style.display = allFilled ? 'block' : 'none';
+}
+
 // ── Menu ──────────────────────────────────────────────────────────────────────
 document.getElementById('btn-pvp').addEventListener('click', () => {
-  mode = 'pvp'; showScreen('search'); connectSocket();
+  mode = 'lobby'; gameState = 'lobby';
+  renderLobbySlots({ slots: [null, null, null, null] });
+  showScreen('lobby'); connectSocket();
 });
 document.getElementById('btn-bots').addEventListener('click', () => {
-  mode = 'bots'; showScreen('search'); connectSocket();
+  mode = 'bots'; showScreen('loading'); connectSocket();
 });
 document.getElementById('btn-rematch').addEventListener('click', () => {
-  cleanupGame(); mode = 'bots'; showScreen('search'); connectSocket();
+  cleanupGame(); mode = 'bots'; showScreen('loading'); connectSocket();
 });
 document.getElementById('btn-menu').addEventListener('click', () => {
   cleanupGame(); showScreen('menu');
+});
+document.getElementById('btn-start-lobby').addEventListener('click', () => {
+  socket?.emit('start_lobby');
+});
+document.getElementById('btn-leave-lobby').addEventListener('click', () => {
+  socket?.emit('leave_lobby');
+  if (socket) { socket.disconnect(); socket = null; }
+  gameState = 'menu'; showScreen('menu');
 });
 
 showScreen('menu');
