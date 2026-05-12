@@ -359,23 +359,10 @@ function tickBots(room, dt) {
   }
 }
 
-function startRoom(room, roomId, sockets) {
-  rooms.set(roomId, room);
+function startGameLoop(room, roomId) {
+  if (room._readyTimeout) { clearTimeout(room._readyTimeout); room._readyTimeout = null; }
+  if (room.state !== 'waiting') return; // already started or finished
   room.state = 'playing';
-
-  sockets.forEach(s => {
-    if (!s) return;
-    s.join(roomId);
-    s.data.roomId = roomId;
-  });
-
-  io.to(roomId).emit('game_start', {
-    roomId,
-    players: [...room.players.values()],
-    obstacles: OBSTACLES,
-    mapW: MAP_W,
-    mapH: MAP_H,
-  });
 
   let lastTick = Date.now();
   const gameLoop = setInterval(() => {
@@ -401,6 +388,30 @@ function startRoom(room, roomId, sockets) {
       io.to(roomId).emit('game_over', { winner: -1, error: true });
     }
   }, 1000 / TICK_RATE);
+}
+
+function startRoom(room, roomId, sockets) {
+  rooms.set(roomId, room);
+  room.state = 'waiting';
+  room.humanIds = new Set(sockets.filter(Boolean).map(s => s.id));
+  room.readyIds = new Set();
+
+  sockets.forEach(s => {
+    if (!s) return;
+    s.join(roomId);
+    s.data.roomId = roomId;
+  });
+
+  io.to(roomId).emit('game_start', {
+    roomId,
+    players: [...room.players.values()],
+    obstacles: OBSTACLES,
+    mapW: MAP_W,
+    mapH: MAP_H,
+  });
+
+  // Safety timeout: start game anyway after 20s even if client never signals ready
+  room._readyTimeout = setTimeout(() => startGameLoop(room, roomId), 20000);
 }
 
 // --- Matchmaking queue ---
@@ -462,6 +473,17 @@ io.on('connection', (socket) => {
     queue.push({ socket, user: data?.user });
     socket.emit('queue_status', { inQueue: queue.length });
     tryMatchmaking();
+  });
+
+  socket.on('player_ready', () => {
+    const roomId = socket.data.roomId;
+    if (!roomId) return;
+    const room = rooms.get(roomId);
+    if (!room || room.state !== 'waiting') return;
+    room.readyIds.add(socket.id);
+    if (room.readyIds.size >= room.humanIds.size) {
+      startGameLoop(room, roomId);
+    }
   });
 
   socket.on('input', (input) => {

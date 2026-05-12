@@ -646,20 +646,21 @@ function connectSocket() {
     }
     if (!mapBuilt) { buildMap(d.obstacles); mapBuilt = true; }
 
-    // Show loading screen until at least one model is ready
+    // 'countdown' state: scene renders but input is blocked
+    gameState = 'countdown';
     showScreen('loading');
     await waitForModel();
+    if (gameState !== 'countdown') return; // game ended while loading
 
-    // Canvas is now visible — activate playing state so scene renders
-    gameState = 'playing';
-    // Hide overlay screens without showing HUD/joystick yet
+    // Models ready — show arena with countdown overlay
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById('overlay').style.pointerEvents = 'none';
-
-    // Countdown 3-2-1-GO over the visible arena
     await showCountdown();
+    if (gameState !== 'countdown') return; // game ended during countdown
 
-    // Now show HUD and joysticks
+    // Signal server: client is ready, start the game loop
+    gameState = 'playing';
+    socket?.emit('player_ready');
     showScreen('game');
   });
 
@@ -955,13 +956,14 @@ function animate() {
   const delta = Math.min((now - _lastTime) / 1000, 0.1); // cap at 100ms
   _lastTime = now;
 
-  if (gameState === 'playing') {
+  if (gameState === 'playing' || gameState === 'countdown') {
     updatePlayers(delta);
     updateHooks();
     animateTorches();
+  }
+  if (gameState === 'playing') {
     updateAimFromJoystick();
     drawJoysticks();
-
     const me = sPlayers.find(p => p.id === myId);
     if (me) {
       document.getElementById('hud-hp').textContent =
