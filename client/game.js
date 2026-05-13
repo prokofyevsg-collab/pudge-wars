@@ -154,7 +154,7 @@ NATURE_ASSETS.forEach(name => {
 });
 
 // ── Водные декорации (Kenney GLTF) — included in loading counter ─────────────
-const GLTF_WATER = ['lily_large', 'lily_small', 'bridge_stoneRound', 'canoe'];
+const GLTF_WATER = ['lily_large', 'lily_small', 'canoe'];
 GLTF_WATER.forEach(name => {
   gltfLoader.load(`/gltf/${name}.glb`, gltf => {
     _applyToonToNature(gltf.scene);
@@ -193,7 +193,7 @@ function onClipReady(name, clip) {
 
 // ── Asset load tracking ───────────────────────────────────────────────────────
 let _assetsLoaded = 0;
-const _assetsTotal = 23; // 4 walk + run + hook + die + 12 nature + 4 water gltf
+const _assetsTotal = 22; // 4 walk + run + hook + die + 12 nature + 3 water gltf
 
 const _LOAD_TIPS = [
   'Хукай первым — побеждай последним',
@@ -357,24 +357,6 @@ function buildMap(obstacles) {
   for (let i = 0; i < 10; i++) {
     flat(riverCX, mh * (i + 0.4) / 10, riverHW * 1.65, 0.10, mRipple, 0.007, 5);
   }
-
-  // ── Мост через реку ───────────────────────────────────────────────────────
-  function placeBridge(name, wx, wz, targetSpan) {
-    const base = natureModels[name];
-    if (!base) return;
-    const m = base.clone(true);
-    const box = new THREE.Box3().setFromObject(m);
-    const sz = box.getSize(new THREE.Vector3());
-    // Rotate so the longest horizontal dim crosses the river (X-direction)
-    if (sz.z > sz.x) m.rotation.y = Math.PI / 2;
-    const horizDim = Math.max(sz.x, sz.z);
-    const s = targetSpan / horizDim;
-    m.scale.setScalar(s);
-    const box2 = new THREE.Box3().setFromObject(m);
-    m.position.set(wx, -box2.min.y * s, wz);
-    mapGroup.add(m);
-  }
-  placeBridge('bridge_stoneRound', riverCX, mh * 0.50, riverHW * 2.6);
 
   // ── Водяные лилии ─────────────────────────────────────────────────────────
   [
@@ -713,7 +695,7 @@ function getOrCreateChar(id, team) {
     model.scale.set(1, 1, 1); // reset before measuring (pool reuse fix)
     const box  = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
-    const s    = size.y > 0.001 ? 1.28 / size.y : 0.65;
+    const s    = size.y > 0.001 ? 1.088 / size.y : 0.553; // 15% smaller than before
     model.scale.setScalar(s);
     const box2 = new THREE.Box3().setFromObject(model);
     model.position.y = -box2.min.y;
