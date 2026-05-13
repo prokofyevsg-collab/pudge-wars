@@ -1397,7 +1397,7 @@ async function loadLeaderboard() {
     const tbody = document.getElementById('lb-body');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="6" style="color:#444;padding:16px">Пока пусто — сыграй первую игру!</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="color:#444;padding:16px">Пока пусто — сыграй первую игру!</td></tr>';
       return;
     }
     const medals = ['🥇', '🥈', '🥉'];
@@ -1407,7 +1407,8 @@ async function loadLeaderboard() {
         <td>${r.name}</td>
         <td style="color:#e74c3c">${r.kills}</td>
         <td style="color:#888">${r.deaths}</td>
-        <td style="font-size:10px;color:#777">${r.wins}/${r.losses}</td>
+        <td style="color:#2ecc71">${r.wins}</td>
+        <td style="color:#777">${r.games}</td>
         <td style="color:${r.winrate >= 50 ? '#2ecc71' : '#e74c3c'};font-weight:bold">${r.winrate}%</td>
       </tr>`
     ).join('');
