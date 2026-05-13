@@ -641,6 +641,7 @@ function getOrCreateChar(id, team) {
 
   const model = pudgePool.pop() ?? null;
   if (model) {
+    model.scale.set(1, 1, 1); // reset before measuring (pool reuse fix)
     const box  = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const s    = size.y > 0.001 ? 1.28 / size.y : 0.65;
