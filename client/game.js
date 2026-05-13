@@ -329,18 +329,9 @@ function buildMap(obstacles) {
   flat(riverCX, mh / 2, riverHW * 2, mh * 2.5, mWater, -0.010, 3); // река тоже тянется
   flat(mw / 2, mh / 2, 600, 600, mVoid, -0.02);                    // чёрная подложка (дальний план)
 
-  // ── Трава (шахматные плитки, левая и правая стороны) ──────────────────────
-  const tC = 6, tR = 8;
-  const tW = leftEnd / tC, tH = mh / tR;
-  for (let c = 0; c < tC; c++) for (let r = 0; r < tR; r++) {
-    flat(tW * (c + 0.5), tH * (r + 0.5), tW, tH,
-         (c + r) % 2 === 0 ? mGrassA : mGrassB, 0.001, 1);
-  }
-  const rW = (mw - rightSt) / tC;
-  for (let c = 0; c < tC; c++) for (let r = 0; r < tR; r++) {
-    flat(rightSt + rW * (c + 0.5), tH * (r + 0.5), rW, tH,
-         (c + r) % 2 === 0 ? mGrassA : mGrassB, 0.001, 1);
-  }
+  // ── Трава (сплошной цвет, без шахматки) ──────────────────────────────────
+  flat(leftEnd / 2, mh / 2, leftEnd, mh, mGrassA, 0.001, 1);
+  flat(rightSt + (mw - rightSt) / 2, mh / 2, mw - rightSt, mh, mGrassA, 0.001, 1);
 
   // ── Грязевые берега ───────────────────────────────────────────────────────
   flat(riverCX - riverHW - bankW / 2, mh / 2, bankW, mh, mMud,  0.003, 2);
@@ -422,106 +413,73 @@ function buildMap(obstacles) {
     addTree(wx, (1 - fz) * mh, sc);
   });
 
-  // ── Камни вдоль берега (GLB или процедурные) ─────────────────────────────
+  // ── Камни вдоль берега — меньше, но крупнее ─────────────────────────────
   const rockVariants = ['rock-a', 'rock-b', 'rock-c', 'rock-flat-grass'];
-  [0.08,0.18,0.30,0.42,0.55,0.66,0.78,0.90].forEach((fz, i) => {
+  [0.18, 0.50, 0.82].forEach((fz, i) => {
     const z = fz * mh;
-    const sc = 0.85 + (i % 3) * 0.15;
-    const offL = (i % 2 === 0 ? 0.08 : -0.06);
-    const offR = (i % 2 === 0 ? -0.08 : 0.06);
+    const sc = 1.0 + (i % 2) * 0.30;
+    const offL = (i % 2 === 0 ? 0.10 : -0.08);
+    const offR = -offL;
     [
       [riverCX - riverHW - bankW * 0.35 + offL, z],
       [riverCX + riverHW + bankW * 0.35 + offR, z],
     ].forEach(([rx, rz]) => {
-      const rname = rockVariants[(i * 2 + Math.round(rx)) % rockVariants.length];
+      const rname = rockVariants[(i + Math.round(rx * 2)) % rockVariants.length];
       if (natureModels[rname]) {
-        placeNature(rname, rx, rz, 0.22 * sc);
+        placeNature(rname, rx, rz, 0.45 * sc);
       } else {
-        const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.11 * sc, 0), mRock);
-        r.position.set(rx, 0.05 * sc, rz); r.rotation.y = fz * 7.3;
+        const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22 * sc, 0), mRock);
+        r.position.set(rx, 0.09 * sc, rz); r.rotation.y = fz * 7.3;
         r.castShadow = true; mapGroup.add(r);
       }
     });
   });
 
-  // ── Трава и декор по полю ─────────────────────────────────────────────────
+  // ── Трава — немного, разбросана по полю ─────────────────────────────────
   [
-    [0.15, 0.22], [0.28, 0.55], [0.10, 0.70], [0.32, 0.38], [0.22, 0.85],
-    [0.05, 0.44], [0.38, 0.62], [0.18, 0.10], [0.30, 0.78],
-  ].forEach(([fx, fz], i) => {
-    const gname = i % 3 === 0 ? 'grass-large' : 'patch-grass';
-    placeNature(gname, fx * leftEnd, fz * mh, 0.28);
-    placeNature(gname, mw - fx * (mw - rightSt), fz * mh, 0.28);
+    [0.25, 0.22, 'patch-grass-large'], [0.55, 0.68, 'grass-large'],
+    [0.42, 0.45, 'patch-grass'],       [0.18, 0.80, 'patch-grass-large'],
+    [0.62, 0.30, 'patch-grass'],       [0.35, 0.88, 'grass-large'],
+  ].forEach(([fx, fz, gname]) => {
+    placeNature(gname, fx * leftEnd, fz * mh, 0.34);
+    placeNature(gname, mw - fx * (mw - rightSt), fz * mh, 0.34);
   });
 
   // ── Кострище внизу реки ───────────────────────────────────────────────────
   placeNature('campfire-pit', riverCX, mh * 0.88, 0.35);
 
-  // ── Дополнительная трава по полю ─────────────────────────────────────────
+  // ── Камни в поле — 2 штуки на сторону, крупные ───────────────────────────
   [
-    [0.12, 0.32], [0.42, 0.48], [0.58, 0.15], [0.78, 0.38],
-    [0.22, 0.65], [0.65, 0.72], [0.48, 0.88], [0.85, 0.55],
-    [0.30, 0.18], [0.70, 0.25], [0.50, 0.58], [0.38, 0.80],
-    [0.75, 0.90], [0.15, 0.52], [0.55, 0.42],
-  ].forEach(([fx, fz], i) => {
-    const gnArr = ['patch-grass', 'patch-grass', 'patch-grass-large', 'grass-large'];
-    const gname = gnArr[i % gnArr.length];
-    placeNature(gname, fx * leftEnd, fz * mh, 0.20 + (i % 3) * 0.04);
-    placeNature(gname, mw - fx * (mw - rightSt), fz * mh, 0.20 + (i % 3) * 0.04);
-  });
-
-  // ── Лужи (маленькие водоёмы в поле) ─────────────────────────────────────
-  function addPuddle(wx, wz, r) {
-    const circ = new THREE.Mesh(new THREE.CircleGeometry(r, 12), mWater);
-    circ.rotation.x = -Math.PI / 2;
-    circ.position.set(wx, 0.008, wz);
-    circ.receiveShadow = true; circ.renderOrder = 3;
-    mapGroup.add(circ);
-    const rim = new THREE.Mesh(new THREE.RingGeometry(r * 0.52, r * 0.72, 12), mRipple);
-    rim.rotation.x = -Math.PI / 2;
-    rim.position.set(wx, 0.009, wz); rim.renderOrder = 5;
-    mapGroup.add(rim);
-  }
-  [
-    [0.68, 0.28, 0.30], [0.52, 0.72, 0.24], [0.78, 0.55, 0.27],
-  ].forEach(([fx, fz, r]) => {
-    addPuddle(fx * leftEnd, fz * mh, r);
-    addPuddle(mw - fx * (mw - rightSt), fz * mh, r);
-  });
-
-  // ── Камни в поле (рассыпаны по травяным зонам) ───────────────────────────
-  [
-    [0.55, 0.18, 0.9], [0.72, 0.45, 1.1], [0.45, 0.62, 0.8],
-    [0.62, 0.82, 0.95], [0.80, 0.30, 0.85], [0.35, 0.55, 1.0],
+    [0.58, 0.28, 1.4], [0.40, 0.72, 1.2],
   ].forEach(([fx, fz, sc], i) => {
-    const rname = rockVariants[i % rockVariants.length];
+    const rname = rockVariants[i % 2];
     [fx * leftEnd, mw - fx * (mw - rightSt)].forEach(rx => {
       if (natureModels[rname]) {
-        placeNature(rname, rx, fz * mh, 0.17 * sc);
+        placeNature(rname, rx, fz * mh, 0.42 * sc);
       } else {
-        const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(0.09 * sc, 0), mRock);
-        rk.position.set(rx, 0.04, fz * mh);
+        const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(0.21 * sc, 0), mRock);
+        rk.position.set(rx, 0.08, fz * mh);
         rk.rotation.y = fx * 5.7; rk.castShadow = true; mapGroup.add(rk);
       }
     });
   });
 
-  // ── Пригорки ─────────────────────────────────────────────────────────────
+  // ── Пригорки — крупные ───────────────────────────────────────────────────
   function addHill(wx, wz, r) {
     const dome = new THREE.Mesh(
-      new THREE.SphereGeometry(r, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.50),
+      new THREE.SphereGeometry(r, 12, 7, 0, Math.PI * 2, 0, Math.PI * 0.48),
       T(0x4aaa1e)
     );
     dome.position.set(wx, 0, wz);
     dome.castShadow = true; dome.receiveShadow = true;
     mapGroup.add(dome);
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.06, 0.04, 10), T(0x3a8818));
-    base.position.set(wx, 0.02, wz);
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.95, r * 1.08, 0.05, 12), T(0x3a8818));
+    base.position.set(wx, 0.025, wz);
     base.receiveShadow = true; mapGroup.add(base);
   }
   [
-    [0.15, 0.14, 0.45], [0.65, 0.82, 0.40],
-    [0.20, 0.55, 0.50], [0.55, 0.28, 0.38],
+    [0.22, 0.18, 0.88], [0.55, 0.75, 0.78],
+    [0.40, 0.50, 0.92],
   ].forEach(([fx, fz, r]) => {
     addHill(fx * leftEnd, fz * mh, r);
     addHill(mw - fx * (mw - rightSt), fz * mh, r);
