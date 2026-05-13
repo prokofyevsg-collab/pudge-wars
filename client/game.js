@@ -1263,11 +1263,13 @@ function animate() {
 }
 
 // ── Resize ────────────────────────────────────────────────────────────────────
-window.addEventListener('resize', () => {
-  const w = window.innerWidth, h = window.innerHeight;
+function applyResize() {
+  const vvp = window.visualViewport;
+  const w = Math.round(vvp ? vvp.width  : window.innerWidth);
+  const h = Math.round(vvp ? vvp.height : window.innerHeight);
+  if (w < 100 || h < 100) return; // ignore degenerate sizes mid-transition
   aspect = w / h;
   renderer.setSize(w, h);
-  // Recompute full camera frustum (VIEW_SIZE stays, only width changes with aspect)
   camera.left   = -VIEW_SIZE * aspect;
   camera.right  =  VIEW_SIZE * aspect;
   camera.top    =  VIEW_SIZE;
@@ -1275,7 +1277,16 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   resizeJoyCanvas();
   updateJoyBases();
-});
+}
+
+let _resizeTid = 0;
+function scheduleResize() {
+  clearTimeout(_resizeTid);
+  _resizeTid = setTimeout(applyResize, 120); // wait for viewport to settle
+}
+
+window.addEventListener('resize', scheduleResize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', scheduleResize);
 
 // ── Lobby UI ──────────────────────────────────────────────────────────────────
 function renderLobbySlots(state) {
