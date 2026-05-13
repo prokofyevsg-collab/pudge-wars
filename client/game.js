@@ -5,6 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const SERVER_URL   = window.location.origin;
 let   MAP_W = 1600, MAP_H = 900;   // updated from game_start
 const S = 0.01;                     // server → world scale  (1600→16, 900→9)
+const HOOK_RANGE_WORLD = 7.0;       // 700 server units * S
 const TEAM_COLORS  = [0xe74c3c, 0x2980b9];
 const TEAM_HEX     = ['#e74c3c', '#2980b9'];
 const TEAM_NAMES   = ['Красные', 'Синие'];
@@ -651,54 +652,28 @@ let aimObjects = null;
 function buildAimObjects() {
   const ao = {};
 
-  // Flat ribbon on floor (BoxGeometry — actually thick, visible at any angle)
-  const ribbonMat = new THREE.MeshBasicMaterial({
-    color: 0xff4422, transparent: true, opacity: 0.68,
-    depthWrite: false, side: THREE.DoubleSide,
-  });
-  // BoxGeometry(1, h, w): length=1 along X (will be scaled), height=0.015 (flat), width=0.14
-  ao.ribbon = new THREE.Mesh(new THREE.BoxGeometry(1, 0.015, 0.14), ribbonMat);
-  ao.ribbon.renderOrder = 10;
-  ao.ribbon.visible = false;
-  scene.add(ao.ribbon);
-
-  // Crosshair group at target position
-  const cg = new THREE.Group();
-  function mat() {
-    return new THREE.MeshBasicMaterial({
-      color: 0xff3311, transparent: true, opacity: 0.88,
+  // Tapered triangle: fat base at origin (0,0,±hw), tip at (1,0,0).
+  // Scale X by HOOK_RANGE_WORLD so length always matches hook range.
+  function makeBeam(hw, color, opacity, y, order) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(
+      new Float32Array([0, 0, -hw,  0, 0, hw,  1, 0, 0]), 3
+    ));
+    const mat = new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity,
       side: THREE.DoubleSide, depthWrite: false,
     });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.scale.set(HOOK_RANGE_WORLD, 1, 1);
+    mesh.position.y = y;
+    mesh.renderOrder = order;
+    mesh.visible = false;
+    scene.add(mesh);
+    return mesh;
   }
 
-  // Outer ring — properly set rotation/position via Three.js properties
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.36, 32), mat());
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.05;
-  ring.renderOrder = 11;
-  cg.add(ring);
-
-  // Inner dot
-  const dot = new THREE.Mesh(new THREE.CircleGeometry(0.07, 16), mat());
-  dot.rotation.x = -Math.PI / 2;
-  dot.position.y = 0.05;
-  dot.renderOrder = 11;
-  cg.add(dot);
-
-  // 4 flat tick bars radiating outward (BoxGeometry lies flat, rotation.y orients them)
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2;
-    const tick = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.015, 0.20), mat());
-    tick.position.set(Math.cos(a) * 0.54, 0.05, Math.sin(a) * 0.54);
-    tick.rotation.y = a;
-    tick.renderOrder = 11;
-    cg.add(tick);
-  }
-
-  cg.visible = false;
-  scene.add(cg);
-  ao.crosshair = cg;
-  ao.tick = 0;
+  ao.beamGlow = makeBeam(0.22, 0x33ff55, 0.16, 0.02, 10); // wide, subtle glow
+  ao.beam     = makeBeam(0.09, 0x55ff77, 0.62, 0.03, 11); // narrow, opaque core
   return ao;
 }
 
@@ -707,32 +682,27 @@ function showAimIndicators(fromW, toW) {
   const ao = aimObjects;
 
   const dir = new THREE.Vector3(toW.x - fromW.x, 0, toW.z - fromW.z);
-  const len = dir.length();
-
-  if (len > 0.01) {
-    ao.ribbon.visible = true;
-    ao.ribbon.position.set((fromW.x + toW.x) / 2, 0.03, (fromW.z + toW.z) / 2);
-    ao.ribbon.scale.set(len, 1, 1);
-    // Orient local X (long axis) toward target using Y-axis rotation only
-    ao.ribbon.quaternion.setFromUnitVectors(
-      new THREE.Vector3(1, 0, 0),
-      dir.clone().normalize()
-    );
-  } else {
-    ao.ribbon.visible = false;
+  if (dir.length() < 0.01) {
+    ao.beam.visible = false;
+    ao.beamGlow.visible = false;
+    return;
   }
+  dir.normalize();
+  const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir);
 
-  ao.crosshair.visible = true;
-  ao.crosshair.position.set(toW.x, 0, toW.z);
-  ao.tick += 0.06;
-  ao.crosshair.scale.setScalar(1 + Math.sin(ao.tick * 4) * 0.12);
-  ao.crosshair.rotation.y = ao.tick * 0.5;
+  ao.beam.visible = true;
+  ao.beam.position.set(fromW.x, 0.03, fromW.z);
+  ao.beam.quaternion.copy(quat);
+
+  ao.beamGlow.visible = true;
+  ao.beamGlow.position.set(fromW.x, 0.02, fromW.z);
+  ao.beamGlow.quaternion.copy(quat);
 }
 
 function hideAimIndicators() {
   if (!aimObjects) return;
-  aimObjects.ribbon.visible = false;
-  aimObjects.crosshair.visible = false;
+  aimObjects.beam.visible = false;
+  aimObjects.beamGlow.visible = false;
 }
 
 // ── Coord helpers ─────────────────────────────────────────────────────────────
