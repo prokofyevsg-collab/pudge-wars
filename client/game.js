@@ -1343,7 +1343,7 @@ function updatePlayers(delta) {
 
   // Frame-rate independent factors
   const posK = 1 - Math.exp(-delta * 22);   // position lerp (~22 Hz convergence)
-  const rotK = 1 - Math.exp(-delta * 11);   // rotation lerp (~0.3s for 180°)
+  const rotK = 1 - Math.exp(-delta * 17);   // rotation lerp (snappier)
   const rotKFast = 1 - Math.exp(-delta * 22); // fast rotation for hook snap
 
   for (const p of sPlayers) {
@@ -1451,7 +1451,7 @@ function animateTorches() {
 }
 
 function updateAimFromJoystick(delta) {
-  const k = 1 - Math.exp(-delta * 9); // smoothing: ~63% convergence in ~110ms
+  const k = 1 - Math.exp(-delta * 5); // smoothing: softer aim (~200ms convergence)
   aimJoy.snx += (aimJoy.nx - aimJoy.snx) * k;
   aimJoy.sny += (aimJoy.ny - aimJoy.sny) * k;
   if (!aimJoy.active || (Math.abs(aimJoy.snx) < 0.05 && Math.abs(aimJoy.sny) < 0.05)) return;
