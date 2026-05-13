@@ -491,7 +491,7 @@ function getOrCreateChar(id, team) {
   if (model) {
     const box  = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
-    const s    = size.y > 0.001 ? 1.47 / size.y : 0.75;
+    const s    = size.y > 0.001 ? 1.28 / size.y : 0.65;
     model.scale.setScalar(s);
     const box2 = new THREE.Box3().setFromObject(model);
     model.position.y = -box2.min.y;
@@ -1168,14 +1168,19 @@ function updatePlayers(delta) {
         }
 
         if (!entry.hookFiring) {
-          // Walk vs run: use own joystick for local player, position delta for others
           const isMe = p.id === myId;
           const joyLen = isMe ? Math.sqrt(moveJoy.nx ** 2 + moveJoy.ny ** 2) : 0;
-          const speed  = isMe ? joyLen : moveDist; // comparable scales
 
-          if (isMe ? joyLen > 0.55 : moveDist > 2.8) {
+          // Smooth position delta for remote players to avoid animation jitter
+          // from bots oscillating around stop threshold
+          if (!isMe) {
+            entry.smoothSpeed = (entry.smoothSpeed ?? 0) * 0.80 + moveDist * 0.20;
+          }
+          const speed = isMe ? joyLen : (entry.smoothSpeed ?? moveDist);
+
+          if (isMe ? joyLen > 0.55 : speed > 2.8) {
             playAnim(entry, 'run',  0.18);
-          } else if (isMe ? joyLen > 0.08 : moveDist > 0.4) {
+          } else if (isMe ? joyLen > 0.08 : speed > 0.7) {
             playAnim(entry, 'walk', 0.22);
           } else {
             // Idle — play walk very slowly so character breathes
