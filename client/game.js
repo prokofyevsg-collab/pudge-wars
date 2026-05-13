@@ -895,7 +895,7 @@ function cleanupGame() {
 // ── Dual joystick ─────────────────────────────────────────────────────────────
 const JR = 58;
 const moveJoy = { active: false, pid: -1, nx: 0, ny: 0 };
-const aimJoy  = { active: false, pid: -1, nx: 0, ny: 0 };
+const aimJoy  = { active: false, pid: -1, nx: 0, ny: 0, snx: 0, sny: 0 };
 let moveBase = { x: 110, y: 0 };
 let aimBase  = { x: 0,   y: 0 };
 
@@ -946,11 +946,11 @@ canvas.addEventListener('touchend', e => {
       if (gameState === 'playing') socket?.emit('input', { dx: 0, dy: 0 });
     }
     if (aimJoy.active && t.identifier === aimJoy.pid) {
-      if (gameState === 'playing' && (Math.abs(aimJoy.nx) > 0.05 || Math.abs(aimJoy.ny) > 0.05)) {
-        const target = aimDirToServer(aimJoy.nx, aimJoy.ny);
+      if (gameState === 'playing' && (Math.abs(aimJoy.snx) > 0.05 || Math.abs(aimJoy.sny) > 0.05)) {
+        const target = aimDirToServer(aimJoy.snx, aimJoy.sny);
         if (target) socket?.emit('input', { hookX: target.x, hookY: target.y });
       }
-      Object.assign(aimJoy, { active: false, pid: -1, nx: 0, ny: 0 });
+      Object.assign(aimJoy, { active: false, pid: -1, nx: 0, ny: 0, snx: 0, sny: 0 });
       hideAimIndicators();
     }
   }
@@ -963,7 +963,7 @@ canvas.addEventListener('touchcancel', e => {
       socket?.emit('input', { dx: 0, dy: 0 });
     }
     if (aimJoy.active && t.identifier === aimJoy.pid) {
-      Object.assign(aimJoy, { active: false, pid: -1, nx: 0, ny: 0 });
+      Object.assign(aimJoy, { active: false, pid: -1, nx: 0, ny: 0, snx: 0, sny: 0 });
       hideAimIndicators();
     }
   }
@@ -1249,11 +1249,14 @@ function animateTorches() {
   });
 }
 
-function updateAimFromJoystick() {
-  if (!aimJoy.active || (Math.abs(aimJoy.nx) < 0.05 && Math.abs(aimJoy.ny) < 0.05)) return;
+function updateAimFromJoystick(delta) {
+  const k = 1 - Math.exp(-delta * 9); // smoothing: ~63% convergence in ~110ms
+  aimJoy.snx += (aimJoy.nx - aimJoy.snx) * k;
+  aimJoy.sny += (aimJoy.ny - aimJoy.sny) * k;
+  if (!aimJoy.active || (Math.abs(aimJoy.snx) < 0.05 && Math.abs(aimJoy.sny) < 0.05)) return;
   const me = sPlayers.find(p => p.id === myId);
   if (!me) return;
-  const target = aimDirToServer(aimJoy.nx, aimJoy.ny);
+  const target = aimDirToServer(aimJoy.snx, aimJoy.sny);
   if (target) showAimIndicators(sw(me.x, me.y, 0), sw(target.x, target.y, 0));
 }
 
@@ -1278,7 +1281,7 @@ function animate() {
     }
   }
   if (gameState === 'playing') {
-    updateAimFromJoystick();
+    updateAimFromJoystick(delta);
   }
   drawJoysticks();
   renderer.render(scene, camera);
