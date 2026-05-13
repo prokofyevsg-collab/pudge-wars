@@ -117,16 +117,20 @@
     @keyframes spin { from { transform: rotate(-30deg); } to { transform: rotate(30deg); } }
     @media (orientation: portrait) { #rotate-overlay { display: flex; } }
 
-    /* ─ Leaderboard ─ */
-    #lb-wrap { width: 270px; margin-top: 4px; }
-    #lb-wrap .lb-title { color: #777; font-size: 10px; letter-spacing: 1.5px; text-align: center; margin-bottom: 5px; }
-    #lb-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    #lb-table th { color: #555; font-weight: normal; padding: 2px 5px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.07); }
+    /* ─ Leaderboard screen ─ */
+    #lb-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    #lb-table th { color: #666; font-weight: normal; padding: 4px 8px; text-align: center;
+                   border-bottom: 1px solid rgba(255,255,255,0.10); white-space: nowrap; }
     #lb-table th:nth-child(2) { text-align: left; }
-    #lb-table td { padding: 3px 5px; text-align: center; color: #aaa; border-bottom: 1px solid rgba(255,255,255,0.04); }
-    #lb-table td:nth-child(2) { text-align: left; color: #ddd; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #lb-table td { padding: 5px 8px; text-align: center; color: #aaa;
+                   border-bottom: 1px solid rgba(255,255,255,0.05); }
+    #lb-table td:nth-child(2) { text-align: left; color: #ddd; max-width: 120px;
+                                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #lb-table tr:first-child td { color: #f39c12; }
-    #lb-table tr:first-child td:nth-child(2) { color: #f5c842; }
+    #lb-table tr:first-child td:nth-child(2) { color: #f5c842; font-weight: bold; }
+    .lb-scroll { width: 340px; max-height: 300px; overflow-y: auto;
+                 background: rgba(255,255,255,0.03); border-radius: 8px;
+                 border: 1px solid rgba(255,255,255,0.08); }
   </style>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
@@ -146,17 +150,7 @@
       </div>
       <button class="btn" id="btn-pvp">НАЙТИ ИГРУ (2v2)</button>
       <button class="btn btn-green" id="btn-bots">ИГРАТЬ vs БОТЫ</button>
-      <div id="lb-wrap">
-        <div class="lb-title">🏆 &nbsp;ТАБЛИЦА ЛИДЕРОВ&nbsp; 🏆</div>
-        <table id="lb-table">
-          <thead><tr>
-            <th>#</th><th>Игрок</th><th>⚓</th><th>❤</th><th>🏆</th>
-          </tr></thead>
-          <tbody id="lb-body">
-            <tr><td colspan="5" style="color:#444;padding:8px 0">—</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <button class="btn" id="btn-leaderboard" style="background:#6c3483">🏆 ТАБЛИЦА ЛИДЕРОВ</button>
     </div>
 
     <!-- Lobby -->
@@ -177,6 +171,22 @@
       </div>
       <button class="btn btn-green" id="btn-start-lobby" style="display:none">▶ НАЧАТЬ ИГРУ</button>
       <button class="btn" id="btn-leave-lobby">ОТМЕНА</button>
+    </div>
+
+    <!-- Leaderboard -->
+    <div id="screen-leaderboard" class="screen">
+      <p style="color:#fff;font-size:19px;font-family:'Arial Black',sans-serif;letter-spacing:1px">🏆 ТАБЛИЦА ЛИДЕРОВ</p>
+      <div class="lb-scroll">
+        <table id="lb-table">
+          <thead><tr>
+            <th>#</th><th>Игрок</th><th>⚓</th><th>💀</th><th>В/П</th><th>Win%</th>
+          </tr></thead>
+          <tbody id="lb-body">
+            <tr><td colspan="6" style="color:#444;padding:16px">Загрузка...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <button class="btn" id="btn-lb-back">← НАЗАД</button>
     </div>
 
     <!-- Loading models -->

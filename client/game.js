@@ -866,7 +866,6 @@ function connectSocket() {
     title.style.color = draw ? '#f39c12' : won ? '#f1c40f' : '#e74c3c';
     document.getElementById('gameover-sub').textContent = draw ? '' : `${TEAM_NAMES[d.winner]} побеждают`;
     showScreen('gameover');
-    loadLeaderboard();
   });
 
   socket.on('disconnect', () => {
@@ -1329,16 +1328,18 @@ async function loadLeaderboard() {
     const tbody = document.getElementById('lb-body');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="5" style="color:#444;padding:8px 0">Пока пусто</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="color:#444;padding:16px">Пока пусто — сыграй первую игру!</td></tr>';
       return;
     }
+    const medals = ['🥇', '🥈', '🥉'];
     tbody.innerHTML = rows.map((r, i) =>
       `<tr>
-        <td>${i + 1}</td>
+        <td style="color:${i===0?'#f39c12':i===1?'#bbb':i===2?'#cd7f32':'#555'}">${medals[i] ?? i + 1}</td>
         <td>${r.name}</td>
-        <td>${r.kills}</td>
-        <td>${r.hpPickups}</td>
-        <td>${r.wins}</td>
+        <td style="color:#e74c3c">${r.kills}</td>
+        <td style="color:#888">${r.deaths}</td>
+        <td style="font-size:10px;color:#777">${r.wins}/${r.losses}</td>
+        <td style="color:${r.winrate >= 50 ? '#2ecc71' : '#e74c3c'};font-weight:bold">${r.winrate}%</td>
       </tr>`
     ).join('');
   } catch (_) {}
@@ -1367,7 +1368,13 @@ document.getElementById('btn-leave-lobby').addEventListener('click', () => {
   if (socket) { socket.disconnect(); socket = null; }
   gameState = 'menu'; showScreen('menu');
 });
+document.getElementById('btn-leaderboard').addEventListener('click', () => {
+  showScreen('leaderboard');
+  loadLeaderboard();
+});
+document.getElementById('btn-lb-back').addEventListener('click', () => {
+  showScreen('menu');
+});
 
 showScreen('menu');
-loadLeaderboard();
 animate();

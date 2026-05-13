@@ -22,21 +22,29 @@ try { statsDB = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8')); } catch (_) {}
 function saveStats() {
   try { fs.writeFileSync(STATS_FILE, JSON.stringify(statsDB)); } catch (e) { console.error('[stats]', e); }
 }
-function updatePlayerStats(statsId, name, kills, hpPickups, won) {
+function updatePlayerStats(statsId, name, kills, deaths, won) {
   if (!statsId) return;
-  if (!statsDB[statsId]) statsDB[statsId] = { name, kills: 0, hpPickups: 0, wins: 0, games: 0 };
+  if (!statsDB[statsId]) statsDB[statsId] = { name, kills: 0, deaths: 0, wins: 0, games: 0 };
   const s = statsDB[statsId];
-  s.name = name;
-  s.kills     += kills;
-  s.hpPickups += hpPickups;
+  s.name   = name;
+  s.kills  += kills;
+  s.deaths  = (s.deaths || 0) + deaths;
   if (won) s.wins++;
   s.games++;
 }
 
 app.get('/leaderboard', (_req, res) => {
   const rows = Object.values(statsDB)
-    .sort((a, b) => b.kills - a.kills || b.wins - a.wins)
-    .slice(0, 10);
+    .map(r => ({
+      name:    r.name,
+      kills:   r.kills,
+      deaths:  r.deaths || 0,
+      wins:    r.wins,
+      losses:  r.games - r.wins,
+      winrate: r.games > 0 ? Math.round(r.wins / r.games * 100) : 0,
+    }))
+    .sort((a, b) => b.kills - a.kills || b.winrate - a.winrate)
+    .slice(0, 20);
   res.json(rows);
 });
 
@@ -151,6 +159,7 @@ class GameRoom {
     this.heartTimer = 15; // seconds until first spawn
     this.killsPerPlayer   = new Map();
     this.pickupsPerPlayer = new Map();
+    this.deathsPerPlayer  = new Map();
   }
 
   addPlayer(socketId, user, statsId = null) {
@@ -321,6 +330,7 @@ class GameRoom {
                   victimTeam: target.team,
                 });
                 this.killsPerPlayer.set(ownerId, (this.killsPerPlayer.get(ownerId) || 0) + 1);
+                this.deathsPerPlayer.set(targetId, (this.deathsPerPlayer.get(targetId) || 0) + 1);
               } else {
                 hook.caughtId = targetId;
                 target.caughtByHook = true;
@@ -562,8 +572,8 @@ function startGameLoop(room, roomId) {
           if (p.isBot) continue;
           updatePlayerStats(
             p.statsId, p.name,
-            room.killsPerPlayer.get(pid) || 0,
-            room.pickupsPerPlayer.get(pid) || 0,
+            room.killsPerPlayer.get(pid)  || 0,
+            room.deathsPerPlayer.get(pid) || 0,
             result.winner === p.team,
           );
         }
