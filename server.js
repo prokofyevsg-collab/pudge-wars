@@ -849,7 +849,7 @@ function startTelegramBot() {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [[
-              { text: '🕹 Играть', web_app: { url: gameUrl } },
+              { text: '🕹 Играть', web_app: { url: `${gameUrl}?v=${version}` } },
             ]],
           },
         }),
