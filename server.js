@@ -13,9 +13,18 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
+// Serve index.html before static middleware — injects ?v= into game.js to bust cache
+app.get('/', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  let html = fs.readFileSync(path.join(__dirname, 'client', 'index.html'), 'utf8');
+  html = html.replace('src="game.js"', `src="game.js?v=${version}"`);
+  res.type('html').send(html);
+});
+
 app.use(express.static(path.join(__dirname, 'client'), {
   setHeaders(res, filePath) {
-    if (filePath.endsWith('.html') || filePath.endsWith('.js')) {
+    if (filePath.endsWith('.js')) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.setHeader('Pragma', 'no-cache');
     }
