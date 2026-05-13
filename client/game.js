@@ -410,7 +410,7 @@ function buildMap(obstacles) {
     const st = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.52, r * 0.72, stH, 10), mBark);
     st.position.set(cx, stH / 2, cz); st.castShadow = true; mapGroup.add(st);
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.58, r * 0.58, 0.06, 10),
-      T(0x9a6840)));
+      T(0x9a6840));
     cap.position.set(cx, stH + 0.02, cz); mapGroup.add(cap);
     const sh = new THREE.Mesh(new THREE.CircleGeometry(r * 0.95, 12),
       new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 }));
