@@ -841,8 +841,14 @@ function upsertHook(hook, owner) {
     hookLines.set(hook.ownerId, { rope, head });
   }
   const { rope, head } = hookLines.get(hook.ownerId);
-  const from = sw(owner.x, owner.y, 0.80);
-  const to   = sw(hook.x,  hook.y,  0.80);
+  // Offset hook origin to right side of the character model
+  const entry = charEntries.get(hook.ownerId);
+  const rotY = entry ? entry.group.rotation.y : 0;
+  const rOff = 0.40; // world units to character's right
+  const from = sw(owner.x, owner.y, 0.72).add(
+    new THREE.Vector3(Math.cos(rotY) * rOff, 0, -Math.sin(rotY) * rOff)
+  );
+  const to   = sw(hook.x,  hook.y,  0.72);
   positionRope(rope, from, to);
   orientHookHead(head, from, to);
 }
@@ -1374,7 +1380,7 @@ function updatePlayers(delta) {
         if (hasHook && !entry.prevHasHook) {
           entry.hookFiring = true;
           entry.hookTimer  = 0.55;
-          playAnim(entry, 'hook', 0.08, 1.70);
+          playAnim(entry, 'hook', 0.08, 2.21);
         }
         entry.prevHasHook = hasHook;
 
