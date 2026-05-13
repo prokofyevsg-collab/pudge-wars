@@ -764,11 +764,14 @@ io.on('connection', (socket) => {
 });
 
 function sendGroupUpdate(text, replyMarkup = null) {
-  const token  = process.env.BOT_TOKEN;
-  const chatId = process.env.NOTIFY_GROUP_ID;
+  const token   = process.env.BOT_TOKEN;
+  const chatId  = process.env.NOTIFY_GROUP_ID;
+  const gameUrl = process.env.GAME_URL || 'https://pudge-wars-production-e0d3.up.railway.app';
   if (!token || !chatId) { console.log('[notify] BOT_TOKEN or NOTIFY_GROUP_ID not set'); return; }
   const payload = { chat_id: chatId, text, parse_mode: 'Markdown', disable_web_page_preview: true };
-  if (replyMarkup) payload.reply_markup = replyMarkup;
+  payload.reply_markup = replyMarkup ?? {
+    inline_keyboard: [[{ text: '🎮 Играть в Pudge Wars', url: gameUrl }]],
+  };
   fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
