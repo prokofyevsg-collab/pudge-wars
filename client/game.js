@@ -457,6 +457,76 @@ function buildMap(obstacles) {
   // ── Кострище внизу реки ───────────────────────────────────────────────────
   placeNature('campfire-pit', riverCX, mh * 0.88, 0.35);
 
+  // ── Дополнительная трава по полю ─────────────────────────────────────────
+  [
+    [0.12, 0.32], [0.42, 0.48], [0.58, 0.15], [0.78, 0.38],
+    [0.22, 0.65], [0.65, 0.72], [0.48, 0.88], [0.85, 0.55],
+    [0.30, 0.18], [0.70, 0.25], [0.50, 0.58], [0.38, 0.80],
+    [0.75, 0.90], [0.15, 0.52], [0.55, 0.42],
+  ].forEach(([fx, fz], i) => {
+    const gnArr = ['patch-grass', 'patch-grass', 'patch-grass-large', 'grass-large'];
+    const gname = gnArr[i % gnArr.length];
+    placeNature(gname, fx * leftEnd, fz * mh, 0.20 + (i % 3) * 0.04);
+    placeNature(gname, mw - fx * (mw - rightSt), fz * mh, 0.20 + (i % 3) * 0.04);
+  });
+
+  // ── Лужи (маленькие водоёмы в поле) ─────────────────────────────────────
+  function addPuddle(wx, wz, r) {
+    const circ = new THREE.Mesh(new THREE.CircleGeometry(r, 12), mWater);
+    circ.rotation.x = -Math.PI / 2;
+    circ.position.set(wx, 0.008, wz);
+    circ.receiveShadow = true; circ.renderOrder = 3;
+    mapGroup.add(circ);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(r * 0.52, r * 0.72, 12), mRipple);
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.set(wx, 0.009, wz); rim.renderOrder = 5;
+    mapGroup.add(rim);
+  }
+  [
+    [0.68, 0.28, 0.30], [0.52, 0.72, 0.24], [0.78, 0.55, 0.27],
+  ].forEach(([fx, fz, r]) => {
+    addPuddle(fx * leftEnd, fz * mh, r);
+    addPuddle(mw - fx * (mw - rightSt), fz * mh, r);
+  });
+
+  // ── Камни в поле (рассыпаны по травяным зонам) ───────────────────────────
+  [
+    [0.55, 0.18, 0.9], [0.72, 0.45, 1.1], [0.45, 0.62, 0.8],
+    [0.62, 0.82, 0.95], [0.80, 0.30, 0.85], [0.35, 0.55, 1.0],
+  ].forEach(([fx, fz, sc], i) => {
+    const rname = rockVariants[i % rockVariants.length];
+    [fx * leftEnd, mw - fx * (mw - rightSt)].forEach(rx => {
+      if (natureModels[rname]) {
+        placeNature(rname, rx, fz * mh, 0.17 * sc);
+      } else {
+        const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(0.09 * sc, 0), mRock);
+        rk.position.set(rx, 0.04, fz * mh);
+        rk.rotation.y = fx * 5.7; rk.castShadow = true; mapGroup.add(rk);
+      }
+    });
+  });
+
+  // ── Пригорки ─────────────────────────────────────────────────────────────
+  function addHill(wx, wz, r) {
+    const dome = new THREE.Mesh(
+      new THREE.SphereGeometry(r, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.50),
+      T(0x4aaa1e)
+    );
+    dome.position.set(wx, 0, wz);
+    dome.castShadow = true; dome.receiveShadow = true;
+    mapGroup.add(dome);
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.06, 0.04, 10), T(0x3a8818));
+    base.position.set(wx, 0.02, wz);
+    base.receiveShadow = true; mapGroup.add(base);
+  }
+  [
+    [0.15, 0.14, 0.45], [0.65, 0.82, 0.40],
+    [0.20, 0.55, 0.50], [0.55, 0.28, 0.38],
+  ].forEach(([fx, fz, r]) => {
+    addHill(fx * leftEnd, fz * mh, r);
+    addHill(mw - fx * (mw - rightSt), fz * mh, r);
+  });
+
   // ── Фонтан / руна (вверху по центру реки) ────────────────────────────────
   const fcx = riverCX, fcz = mh * 0.10;
   box3(fcx, 0.07, fcz, 0.95, 0.14, 0.95, mStone);
