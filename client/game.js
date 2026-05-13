@@ -46,7 +46,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 // ── Scene ─────────────────────────────────────────────────────────────────────
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0f1a0a);
+scene.background = new THREE.Color(0x1a3d10);
 // No fog — isometric view shows the whole scene from far away; fog kills visibility
 
 // ── Camera ────────────────────────────────────────────────────────────────────
@@ -74,16 +74,30 @@ function positionCamera() {
 }
 positionCamera();
 
-// ── Lighting ──────────────────────────────────────────────────────────────────
-// Ambient — daylight forest tone
-scene.add(new THREE.AmbientLight(0xccddaa, 1.3));
+// ── Toon gradient (shared across all MeshToonMaterial) ────────────────────────
+const toonGrad = (() => {
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = 1;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#222'; ctx.fillRect(0, 0, 1, 1);
+  ctx.fillStyle = '#888'; ctx.fillRect(1, 0, 1, 1);
+  ctx.fillStyle = '#ccc'; ctx.fillRect(2, 0, 1, 1);
+  ctx.fillStyle = '#fff'; ctx.fillRect(3, 0, 1, 1);
+  const t = new THREE.CanvasTexture(c);
+  t.minFilter = t.magFilter = THREE.NearestFilter;
+  return t;
+})();
 
-// Sky / ground hemisphere
-const hemi = new THREE.HemisphereLight(0x88bbee, 0x224411, 0.9);
+// ── Lighting ──────────────────────────────────────────────────────────────────
+// Bright daylight — feeds cel-shading well
+scene.add(new THREE.AmbientLight(0xfff0cc, 1.6));
+
+// Sky / ground hemisphere (vivid sky blue → forest green)
+const hemi = new THREE.HemisphereLight(0xaaddff, 0x44aa22, 1.1);
 scene.add(hemi);
 
 // Key directional (casts shadows)
-const sun = new THREE.DirectionalLight(0xeef5cc, 1.6);
+const sun = new THREE.DirectionalLight(0xfffbe8, 2.0);
 sun.position.set(10, 20, 10);
 sun.castShadow = true;
 Object.assign(sun.shadow.mapSize, { width: 2048, height: 2048 });
@@ -234,24 +248,25 @@ function buildMap(obstacles) {
   const leftEnd  = riverCX - riverHW - bankW;   // правая граница левой травы
   const rightSt  = riverCX + riverHW + bankW;   // левая граница правой травы
 
-  // ── Материалы ─────────────────────────────────────────────────────────────
-  const mVoid   = new THREE.MeshLambertMaterial({ color: 0x030804 });
-  const mGrassA = new THREE.MeshLambertMaterial({ color: 0x3d7a28 });
-  const mGrassB = new THREE.MeshLambertMaterial({ color: 0x2f6020 });
-  const mDirt   = new THREE.MeshLambertMaterial({ color: 0x8b6535 });
-  const mMud    = new THREE.MeshLambertMaterial({ color: 0x6b4e28 });
-  const mWater  = new THREE.MeshLambertMaterial({ color: 0x1e4fa0, transparent: true, opacity: 0.88 });
-  const mDeep   = new THREE.MeshLambertMaterial({ color: 0x112e6a, transparent: true, opacity: 0.92 });
-  const mRipple = new THREE.MeshBasicMaterial ({ color: 0x88bbff, transparent: true, opacity: 0.22 });
-  const mBark   = new THREE.MeshLambertMaterial({ color: 0x5a3a1a });
-  const mLeafA  = new THREE.MeshLambertMaterial({ color: 0x1d6b10 });
-  const mLeafB  = new THREE.MeshLambertMaterial({ color: 0x165409 });
-  const mLeafC  = new THREE.MeshLambertMaterial({ color: 0x0f3d07 });
-  const mRock   = new THREE.MeshLambertMaterial({ color: 0x5e5e50 });
-  const mStone  = new THREE.MeshLambertMaterial({ color: 0x7a7a6a });
-  const mWall   = new THREE.MeshLambertMaterial({ color: 0x2a2a22 });
-  const mFount  = new THREE.MeshStandardMaterial({ color: 0x88aacc, metalness: 0.35, roughness: 0.55 });
-  const mWaterF = new THREE.MeshBasicMaterial  ({ color: 0x55aaff, transparent: true, opacity: 0.78 });
+  // ── Материалы (cel-shading) ───────────────────────────────────────────────
+  const T = (color, opts = {}) => new THREE.MeshToonMaterial({ color, gradientMap: toonGrad, ...opts });
+  const mVoid   = T(0x0a1206);
+  const mGrassA = T(0x5ec22e); // vivid Pandoria-style grass
+  const mGrassB = T(0x4aaa1e); // slightly darker grass tile
+  const mDirt   = T(0xb08848); // warm sandy dirt
+  const mMud    = T(0x8a6638); // mud by riverbank
+  const mWater  = T(0x1ac4d8, { transparent: true, opacity: 0.88 }); // turquoise river
+  const mDeep   = T(0x0fa0b8, { transparent: true, opacity: 0.92 }); // deep water
+  const mRipple = new THREE.MeshBasicMaterial({ color: 0x88eeff, transparent: true, opacity: 0.20 });
+  const mBark   = T(0x8a5228); // warm brown bark
+  const mLeafA  = T(0x32b818); // bright leaf
+  const mLeafB  = T(0x229010); // medium leaf
+  const mLeafC  = T(0x156008); // dark leaf
+  const mRock   = T(0x8a8a78); // warm grey rock
+  const mStone  = T(0xaaaa90); // lighter stone
+  const mWall   = T(0x6a6a58); // stone wall
+  const mFount  = T(0x88bbdd); // fountain
+  const mWaterF = new THREE.MeshBasicMaterial({ color: 0x44ddff, transparent: true, opacity: 0.72 });
 
   function flat(x, z, w, d, mat, y = 0, ro = 0) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
@@ -308,28 +323,35 @@ function buildMap(obstacles) {
   box3(-bT / 2, bH / 2, mh / 2,   bT, bH, mh, mWall);
   box3(mw + bT/2, bH / 2, mh / 2, bT, bH, mh, mWall);
 
-  // ── Деревья (декоративные, фиксированные позиции) ─────────────────────────
+  // ── Деревья ───────────────────────────────────────────────────────────────
   function addTree(wx, wz, sc = 1.0) {
-    const tH2 = 0.62 * sc, tR = 0.09 * sc;
-    const tr = new THREE.Mesh(new THREE.CylinderGeometry(tR * 0.65, tR, tH2, 8), mBark);
+    const tH2 = 0.70 * sc, tR = 0.085 * sc;
+    const tr = new THREE.Mesh(new THREE.CylinderGeometry(tR * 0.55, tR, tH2, 7), mBark);
     tr.position.set(wx, tH2 / 2, wz); tr.castShadow = true; mapGroup.add(tr);
-    const br = 0.38 * sc, cH = 0.60 * sc;
+    const br = 0.42 * sc, cH = 0.64 * sc;
+    // Three cone layers
     [
-      { y: tH2 + cH * 0.30, r: br,        mat: mLeafA },
-      { y: tH2 + cH * 0.65, r: br * 0.70, mat: mLeafB },
-      { y: tH2 + cH * 1.00, r: br * 0.42, mat: mLeafC },
+      { y: tH2 + cH * 0.22, r: br * 1.05, mat: mLeafA },
+      { y: tH2 + cH * 0.58, r: br * 0.72, mat: mLeafB },
+      { y: tH2 + cH * 0.90, r: br * 0.44, mat: mLeafC },
     ].forEach(({ y, r, mat }) => {
-      const c = new THREE.Mesh(new THREE.ConeGeometry(r, cH * 0.55, 9), mat);
+      const c = new THREE.Mesh(new THREE.ConeGeometry(r, cH * 0.55, 8), mat);
       c.position.set(wx, y, wz); c.castShadow = true; mapGroup.add(c);
     });
+    // Rounded crown sphere on top — Pandoria-style fluffy canopy
+    const crown = new THREE.Mesh(new THREE.SphereGeometry(br * 0.40, 7, 5), mLeafB);
+    crown.position.set(wx, tH2 + cH * 1.10, wz);
+    crown.castShadow = true; mapGroup.add(crown);
   }
 
-  // Левая сторона
+  // Левая сторона — плотный лесной бордюр
   [
     [0.06, 0.07, 1.1], [0.20, 0.19, 1.2], [0.09, 0.36, 0.9],
     [0.28, 0.52, 1.0], [0.07, 0.68, 1.2], [0.23, 0.83, 1.0],
     [0.13, 0.94, 0.9], [0.31, 0.11, 1.1], [0.04, 0.50, 1.0],
     [0.26, 0.63, 1.2], [0.11, 0.28, 0.85],[0.33, 0.77, 0.9],
+    [0.38, 0.40, 1.0], [0.18, 0.60, 0.95],[0.35, 0.85, 1.1],
+    [0.08, 0.45, 1.05],[0.30, 0.25, 0.9], [0.22, 0.73, 1.0],
   ].forEach(([fx, fz, sc]) => addTree(fx * leftEnd, fz * mh, sc));
 
   // Правая сторона (зеркально)
@@ -338,7 +360,20 @@ function buildMap(obstacles) {
     [0.28, 0.52, 1.0], [0.07, 0.68, 1.2], [0.23, 0.83, 1.0],
     [0.13, 0.94, 0.9], [0.31, 0.11, 1.1], [0.04, 0.50, 1.0],
     [0.26, 0.63, 1.2], [0.11, 0.28, 0.85],[0.33, 0.77, 0.9],
+    [0.38, 0.40, 1.0], [0.18, 0.60, 0.95],[0.35, 0.85, 1.1],
+    [0.08, 0.45, 1.05],[0.30, 0.25, 0.9], [0.22, 0.73, 1.0],
   ].forEach(([fx, fz, sc]) => addTree(mw - fx * (mw - rightSt), fz * mh, sc));
+
+  // Деревья вдоль верхней и нижней стен
+  [
+    [0.08, 0.03, 0.85], [0.22, 0.04, 0.95], [0.42, 0.03, 0.80],
+    [0.58, 0.04, 0.90], [0.78, 0.03, 0.85], [0.92, 0.04, 0.90],
+  ].forEach(([fx, fz, sc]) => {
+    const wx = fx * mw;
+    if (wx > leftEnd + 0.5 && wx < rightSt - 0.5) return; // skip over river
+    addTree(wx, fz * mh, sc);
+    addTree(wx, (1 - fz) * mh, sc);
+  });
 
   // ── Камни вдоль берега ────────────────────────────────────────────────────
   [0.08,0.18,0.30,0.42,0.55,0.66,0.78,0.90].forEach((fz, i) => {
@@ -377,7 +412,7 @@ function buildMap(obstacles) {
     const st = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.52, r * 0.72, stH, 10), mBark);
     st.position.set(cx, stH / 2, cz); st.castShadow = true; mapGroup.add(st);
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.58, r * 0.58, 0.06, 10),
-      new THREE.MeshLambertMaterial({ color: 0x7a5530 }));
+      T(0x9a6840)));
     cap.position.set(cx, stH + 0.02, cz); mapGroup.add(cap);
     const sh = new THREE.Mesh(new THREE.CircleGeometry(r * 0.95, 12),
       new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 }));
@@ -504,13 +539,17 @@ function applyTeamColor(model, teamColor) {
   const tc = new THREE.Color(teamColor);
   model.traverse(c => {
     if (!c.isMesh || !c.material) return;
-    const apply = mat => {
-      if ('emissive' in mat) { mat.emissive.copy(tc); mat.emissiveIntensity = 0.18; }
-    };
+    const toToon = mat => new THREE.MeshToonMaterial({
+      color: mat.color ? mat.color.clone() : new THREE.Color(0xffffff),
+      map: mat.map ?? null,
+      gradientMap: toonGrad,
+      emissive: tc,
+      emissiveIntensity: 0.18,
+    });
     if (Array.isArray(c.material)) {
-      c.material = c.material.map(m => { const mc = m.clone(); apply(mc); return mc; });
+      c.material = c.material.map(toToon);
     } else {
-      c.material = c.material.clone(); apply(c.material);
+      c.material = toToon(c.material);
     }
   });
 }
