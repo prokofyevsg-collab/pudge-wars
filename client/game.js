@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as SkeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 
 // ── Constants (keep in sync with server) ────────────────────────────────────
 const SERVER_URL   = window.location.origin;
@@ -126,7 +127,31 @@ function onClipReady(name, clip) {
 
 // ── Asset load tracking ───────────────────────────────────────────────────────
 let _assetsLoaded = 0;
-const _assetsTotal = 7; // 4 walk models + run + hook + die
+const _assetsTotal = 4; // 1 walk load (cloned x4) + run + hook + die
+
+const _LOAD_TIPS = [
+  'Хукай первым — побеждай последним',
+  'Прицел показывает точную дальность хука',
+  'Сердце даёт дополнительную жизнь',
+  '2 попадания — и враг повержен',
+  'Играй в команде — побеждайте вместе',
+];
+let _tipTimer = null;
+function _startTipCycle() {
+  let idx = 0;
+  const el = document.getElementById('load-tip');
+  if (!el) return;
+  el.textContent = _LOAD_TIPS[0];
+  _tipTimer = setInterval(() => {
+    el.style.opacity = '0';
+    setTimeout(() => {
+      idx = (idx + 1) % _LOAD_TIPS.length;
+      el.textContent = _LOAD_TIPS[idx];
+      el.style.opacity = '1';
+    }, 350);
+  }, 2200);
+}
+function _stopTipCycle() { if (_tipTimer) { clearInterval(_tipTimer); _tipTimer = null; } }
 
 function _onAsset() {
   _assetsLoaded++;
@@ -154,14 +179,15 @@ function waitForAssets() {
 
 // Pool of pre-loaded model scenes (one per possible player)
 const pudgePool = [];
-for (let i = 0; i < 4; i++) {
-  gltfLoader.load('assets/pudge/pudge-walk.glb', gltf => {
-    gltf.scene.traverse(c => { if (c.isMesh) { c.castShadow = c.receiveShadow = true; } });
-    if (!walkClip && gltf.animations[0]) walkClip = gltf.animations[0];
-    pudgePool.push(gltf.scene);
-    _onAsset();
-  }, undefined, () => _onAsset()); // count errors too so we never hang
-}
+gltfLoader.load('assets/pudge/pudge-walk.glb', gltf => {
+  if (!walkClip && gltf.animations[0]) walkClip = gltf.animations[0];
+  for (let i = 0; i < 4; i++) {
+    const clone = SkeletonClone(gltf.scene);
+    clone.traverse(c => { if (c.isMesh) { c.castShadow = c.receiveShadow = true; } });
+    pudgePool.push(clone);
+  }
+  _onAsset();
+}, undefined, () => _onAsset());
 gltfLoader.load('assets/pudge/pudge-run.glb',  gltf => { runClip  = gltf.animations[0] ?? null; onClipReady('run',  runClip);  _onAsset(); }, undefined, () => _onAsset());
 gltfLoader.load('assets/pudge/pudge-hook.glb', gltf => { hookClip = gltf.animations[0] ?? null; onClipReady('hook', hookClip); _onAsset(); }, undefined, () => _onAsset());
 gltfLoader.load('assets/pudge/pudge-die.glb',  gltf => { dieClip  = gltf.animations[0] ?? null; onClipReady('die',  dieClip);  _onAsset(); }, undefined, () => _onAsset());
@@ -534,7 +560,7 @@ function getOrCreateChar(id, team) {
 
   scene.add(group);
   const entry = {
-    group, ring, team, mixer, actions,
+    group, ring, model, team, mixer, actions,
     currentAnim: null,
     prevX: null, prevY: null,
     prevHasHook: false, hookFiring: false, hookTimer: 0, hookAngle: 0,
@@ -545,7 +571,15 @@ function getOrCreateChar(id, team) {
 
 function removeChar(id) {
   const e = charEntries.get(id);
-  if (e) { scene.remove(e.group); charEntries.delete(id); }
+  if (e) {
+    if (e.model) {
+      e.mixer?.stopAllAction();
+      e.group.remove(e.model);
+      pudgePool.push(e.model); // return model to pool for next game
+    }
+    scene.remove(e.group);
+    charEntries.delete(id);
+  }
 }
 
 // ── Heart pickup ──────────────────────────────────────────────────────────────
@@ -788,6 +822,7 @@ function showScreen(name) {
   document.getElementById('overlay').style.pointerEvents = playing ? 'none' : 'auto';
   document.getElementById('hud').style.display        = playing ? 'block' : 'none';
   document.getElementById('joy-canvas').style.display  = playing ? 'block' : 'none';
+  if (name === 'loading') _startTipCycle(); else _stopTipCycle();
 }
 
 // ── Socket ────────────────────────────────────────────────────────────────────
