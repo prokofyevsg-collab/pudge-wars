@@ -125,7 +125,7 @@ function addTorch(x, z) {
 // ── GLB loader + model pool ───────────────────────────────────────────────────
 const gltfLoader = new GLTFLoader();
 
-// ── Nature assets (Kenney, loaded async — do not block game start) ─────────────
+// ── Nature assets (Kenney) — included in loading counter ──────────────────────
 const natureModels = {};
 const NATURE_ASSETS = [
   'tree', 'tree-tall', 'tree-autumn', 'tree-autumn-tall',
@@ -149,7 +149,8 @@ NATURE_ASSETS.forEach(name => {
   gltfLoader.load(`/nature/${name}.glb`, gltf => {
     _applyToonToNature(gltf.scene);
     natureModels[name] = gltf.scene;
-  }, undefined, () => {});
+    _onAsset();
+  }, undefined, () => _onAsset()); // count errors too so we never hang
 });
 
 // Place a nature GLB model — deterministic rotation, auto-scale to targetH
@@ -182,7 +183,7 @@ function onClipReady(name, clip) {
 
 // ── Asset load tracking ───────────────────────────────────────────────────────
 let _assetsLoaded = 0;
-const _assetsTotal = 7; // 4 walk models + run + hook + die
+const _assetsTotal = 19; // 4 walk + run + hook + die + 12 nature assets
 
 const _LOAD_TIPS = [
   'Хукай первым — побеждай последним',
