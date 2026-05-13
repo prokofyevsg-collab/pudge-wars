@@ -40,9 +40,9 @@ app.get('/version', (_req, res) => res.json({ version }));
 app.post('/admin/broadcast', express.json(), (req, res) => {
   if (req.headers['x-admin-secret'] !== process.env.ADMIN_SECRET)
     return res.status(403).json({ error: 'forbidden' });
-  const { message } = req.body;
+  const { message, reply_markup } = req.body;
   if (!message) return res.status(400).json({ error: 'message required' });
-  sendGroupUpdate(message);
+  sendGroupUpdate(message, reply_markup ?? null);
   res.json({ ok: true });
 });
 
@@ -763,14 +763,16 @@ io.on('connection', (socket) => {
   });
 });
 
-function sendGroupUpdate(text) {
+function sendGroupUpdate(text, replyMarkup = null) {
   const token  = process.env.BOT_TOKEN;
   const chatId = process.env.NOTIFY_GROUP_ID;
   if (!token || !chatId) { console.log('[notify] BOT_TOKEN or NOTIFY_GROUP_ID not set'); return; }
+  const payload = { chat_id: chatId, text, parse_mode: 'Markdown', disable_web_page_preview: true };
+  if (replyMarkup) payload.reply_markup = replyMarkup;
   fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown', disable_web_page_preview: true }),
+    body: JSON.stringify(payload),
   }).then(r => r.json()).then(d => {
     if (!d.ok) console.error('[notify] send error', d.description);
     else console.log('[notify] group notified');
