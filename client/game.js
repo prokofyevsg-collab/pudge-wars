@@ -125,6 +125,48 @@ function addTorch(x, z) {
 // ── GLB loader + model pool ───────────────────────────────────────────────────
 const gltfLoader = new GLTFLoader();
 
+// ── Nature assets (Kenney, loaded async — do not block game start) ─────────────
+const natureModels = {};
+const NATURE_ASSETS = [
+  'tree', 'tree-tall', 'tree-autumn', 'tree-autumn-tall',
+  'rock-a', 'rock-b', 'rock-c', 'rock-flat-grass',
+  'patch-grass', 'patch-grass-large', 'grass-large',
+  'campfire-pit',
+];
+function _applyToonToNature(obj) {
+  obj.traverse(c => {
+    if (!c.isMesh || !c.material) return;
+    const conv = m => new THREE.MeshToonMaterial({
+      color: m.color ? m.color.clone() : new THREE.Color(0xffffff),
+      map: m.map ?? null,
+      gradientMap: toonGrad,
+    });
+    c.material = Array.isArray(c.material) ? c.material.map(conv) : conv(c.material);
+    c.castShadow = true; c.receiveShadow = true;
+  });
+}
+NATURE_ASSETS.forEach(name => {
+  gltfLoader.load(`/nature/${name}.glb`, gltf => {
+    _applyToonToNature(gltf.scene);
+    natureModels[name] = gltf.scene;
+  }, undefined, () => {});
+});
+
+// Place a nature GLB model — deterministic rotation, auto-scale to targetH
+function placeNature(name, wx, wz, targetH, scaleVar = 0) {
+  const base = natureModels[name];
+  if (!base || !mapGroup) return;
+  const m = base.clone(true);
+  const box = new THREE.Box3().setFromObject(m);
+  const h = box.getSize(new THREE.Vector3()).y || 1;
+  const s = (targetH / h) * (1 + scaleVar * 0.15);
+  m.scale.setScalar(s);
+  m.rotation.y = ((wx * 7.3 + wz * 3.1) % (Math.PI * 2));
+  const box2 = new THREE.Box3().setFromObject(m);
+  m.position.set(wx, -box2.min.y * s + 0.01, wz);
+  mapGroup.add(m);
+}
+
 // Global animation clips (shared across all character instances, same skeleton)
 let walkClip = null, runClip = null, hookClip = null, dieClip = null;
 
@@ -322,12 +364,19 @@ function buildMap(obstacles) {
   box3(mw + bT/2, bH / 2, mh / 2, bT, bH, mh, mWall);
 
   // ── Деревья ───────────────────────────────────────────────────────────────
+  const treeVariants = ['tree', 'tree-tall', 'tree-autumn', 'tree-autumn-tall'];
   function addTree(wx, wz, sc = 1.0) {
+    const vi = Math.abs(Math.round(wx * 31 + wz * 17)) % treeVariants.length;
+    const name = treeVariants[vi];
+    if (natureModels[name]) {
+      placeNature(name, wx, wz, 1.1 * sc, vi);
+      return;
+    }
+    // Procedural fallback
     const tH2 = 0.70 * sc, tR = 0.085 * sc;
     const tr = new THREE.Mesh(new THREE.CylinderGeometry(tR * 0.55, tR, tH2, 7), mBark);
     tr.position.set(wx, tH2 / 2, wz); tr.castShadow = true; mapGroup.add(tr);
     const br = 0.42 * sc, cH = 0.64 * sc;
-    // Three cone layers
     [
       { y: tH2 + cH * 0.22, r: br * 1.05, mat: mLeafA },
       { y: tH2 + cH * 0.58, r: br * 0.72, mat: mLeafB },
@@ -336,7 +385,6 @@ function buildMap(obstacles) {
       const c = new THREE.Mesh(new THREE.ConeGeometry(r, cH * 0.55, 8), mat);
       c.position.set(wx, y, wz); c.castShadow = true; mapGroup.add(c);
     });
-    // Rounded crown sphere on top — Pandoria-style fluffy canopy
     const crown = new THREE.Mesh(new THREE.SphereGeometry(br * 0.40, 7, 5), mLeafB);
     crown.position.set(wx, tH2 + cH * 1.10, wz);
     crown.castShadow = true; mapGroup.add(crown);
@@ -373,22 +421,40 @@ function buildMap(obstacles) {
     addTree(wx, (1 - fz) * mh, sc);
   });
 
-  // ── Камни вдоль берега ────────────────────────────────────────────────────
+  // ── Камни вдоль берега (GLB или процедурные) ─────────────────────────────
+  const rockVariants = ['rock-a', 'rock-b', 'rock-c', 'rock-flat-grass'];
   [0.08,0.18,0.30,0.42,0.55,0.66,0.78,0.90].forEach((fz, i) => {
     const z = fz * mh;
     const sc = 0.85 + (i % 3) * 0.15;
     const offL = (i % 2 === 0 ? 0.08 : -0.06);
     const offR = (i % 2 === 0 ? -0.08 : 0.06);
     [
-      [riverCX - riverHW - bankW * 0.35 + offL, z, sc],
-      [riverCX + riverHW + bankW * 0.35 + offR, z, sc],
-    ].forEach(([rx, rz, rsc]) => {
-      const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.11 * rsc, 0), mRock);
-      r.position.set(rx, 0.05 * rsc, rz);
-      r.rotation.y = fz * 7.3;
-      r.castShadow = true; mapGroup.add(r);
+      [riverCX - riverHW - bankW * 0.35 + offL, z],
+      [riverCX + riverHW + bankW * 0.35 + offR, z],
+    ].forEach(([rx, rz]) => {
+      const rname = rockVariants[(i * 2 + Math.round(rx)) % rockVariants.length];
+      if (natureModels[rname]) {
+        placeNature(rname, rx, rz, 0.22 * sc);
+      } else {
+        const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.11 * sc, 0), mRock);
+        r.position.set(rx, 0.05 * sc, rz); r.rotation.y = fz * 7.3;
+        r.castShadow = true; mapGroup.add(r);
+      }
     });
   });
+
+  // ── Трава и декор по полю ─────────────────────────────────────────────────
+  [
+    [0.15, 0.22], [0.28, 0.55], [0.10, 0.70], [0.32, 0.38], [0.22, 0.85],
+    [0.05, 0.44], [0.38, 0.62], [0.18, 0.10], [0.30, 0.78],
+  ].forEach(([fx, fz], i) => {
+    const gname = i % 3 === 0 ? 'grass-large' : 'patch-grass';
+    placeNature(gname, fx * leftEnd, fz * mh, 0.28);
+    placeNature(gname, mw - fx * (mw - rightSt), fz * mh, 0.28);
+  });
+
+  // ── Кострище внизу реки ───────────────────────────────────────────────────
+  placeNature('campfire-pit', riverCX, mh * 0.88, 0.35);
 
   // ── Фонтан / руна (вверху по центру реки) ────────────────────────────────
   const fcx = riverCX, fcz = mh * 0.10;

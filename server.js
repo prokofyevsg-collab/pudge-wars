@@ -31,6 +31,7 @@ app.use(express.static(path.join(__dirname, 'client'), {
   },
 }));
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
+app.use('/nature', express.static(path.join(__dirname, 'assets', 'GLB format')));
 
 // --- Stats ---
 const STATS_FILE = path.join(__dirname, 'stats.json');
