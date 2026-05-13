@@ -358,14 +358,11 @@ function buildMap(obstacles) {
     flat(riverCX, mh * (i + 0.4) / 10, riverHW * 1.65, 0.10, mRipple, 0.007, 5);
   }
 
-  // ── Водяные лилии ─────────────────────────────────────────────────────────
+  // ── Водяные лилии (3 штуки) ──────────────────────────────────────────────
   [
-    [riverCX - riverHW * 0.45, mh * 0.14, 'lily_large'],
-    [riverCX + riverHW * 0.38, mh * 0.28, 'lily_small'],
-    [riverCX - riverHW * 0.20, mh * 0.40, 'lily_small'],
-    [riverCX + riverHW * 0.50, mh * 0.62, 'lily_large'],
-    [riverCX - riverHW * 0.35, mh * 0.74, 'lily_small'],
-    [riverCX + riverHW * 0.22, mh * 0.86, 'lily_large'],
+    [riverCX - riverHW * 0.42, mh * 0.20, 'lily_large'],
+    [riverCX + riverHW * 0.35, mh * 0.50, 'lily_small'],
+    [riverCX - riverHW * 0.28, mh * 0.78, 'lily_large'],
   ].forEach(([wx, wz, name]) => placeNature(name, wx, wz, 0.22));
 
   // ── Каноэ ─────────────────────────────────────────────────────────────────
@@ -436,9 +433,9 @@ function buildMap(obstacles) {
     addTree(wx, (1 - fz) * mh, sc);
   });
 
-  // ── Камни вдоль берега — меньше, но крупнее ─────────────────────────────
+  // ── Камни вдоль берега — 2 по краям ────────────────────────────────────────
   const rockVariants = ['rock-a', 'rock-b', 'rock-c', 'rock-flat-grass'];
-  [0.18, 0.50, 0.82].forEach((fz, i) => {
+  [0.10, 0.90].forEach((fz, i) => {
     const z = fz * mh;
     const sc = 1.0 + (i % 2) * 0.30;
     const offL = (i % 2 === 0 ? 0.10 : -0.08);
@@ -468,8 +465,6 @@ function buildMap(obstacles) {
     placeNature(gname, mw - fx * (mw - rightSt), fz * mh, 0.34);
   });
 
-  // ── Кострище внизу реки ───────────────────────────────────────────────────
-  placeNature('campfire-pit', riverCX, mh * 0.88, 0.35);
 
   // ── Камни в поле — 2 штуки на сторону, крупные ───────────────────────────
   [
@@ -508,17 +503,6 @@ function buildMap(obstacles) {
     addHill(mw - fx * (mw - rightSt), fz * mh, r);
   });
 
-  // ── Фонтан / руна (вверху по центру реки) ────────────────────────────────
-  const fcx = riverCX, fcz = mh * 0.10;
-  box3(fcx, 0.07, fcz, 0.95, 0.14, 0.95, mStone);
-  box3(fcx, 0.22, fcz, 0.72, 0.16, 0.72, mStone);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.40, 0.058, 7, 20), mFount);
-  rim.rotation.x = Math.PI / 2; rim.position.set(fcx, 0.32, fcz);
-  rim.castShadow = true; mapGroup.add(rim);
-  flat(fcx, fcz, 0.64, 0.64, mWaterF, 0.30, 6);
-  box3(fcx, 0.60, fcz, 0.11, 0.42, 0.11, mFount);
-  const ball = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), mFount);
-  ball.position.set(fcx, 0.88, fcz); mapGroup.add(ball);
 
   // ── Препятствия-пни (данные сервера) ─────────────────────────────────────
   obstacles.forEach(o => {
@@ -540,10 +524,6 @@ function buildMap(obstacles) {
 
   // ── Освещение ─────────────────────────────────────────────────────────────
   torches.length = 0;
-
-  // Фонтанный свет (синий, пульсирующий)
-  const fLight = new THREE.PointLight(0x44aaff, 4.5, mw * 0.55);
-  fLight.position.set(fcx, 1.2, fcz); scene.add(fLight); torches.push(fLight);
 
   // Речной свет по центру
   const riverGlow = new THREE.PointLight(0x2266cc, 2.8, riverHW * 14);
