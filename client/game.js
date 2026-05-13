@@ -153,6 +153,16 @@ NATURE_ASSETS.forEach(name => {
   }, undefined, () => _onAsset()); // count errors too so we never hang
 });
 
+// ── Водные декорации (Kenney GLTF) — included in loading counter ─────────────
+const GLTF_WATER = ['lily_large', 'lily_small', 'bridge_stoneRound', 'canoe'];
+GLTF_WATER.forEach(name => {
+  gltfLoader.load(`/gltf/${name}.glb`, gltf => {
+    _applyToonToNature(gltf.scene);
+    natureModels[name] = gltf.scene;
+    _onAsset();
+  }, undefined, () => _onAsset());
+});
+
 // Place a nature GLB model — deterministic rotation, auto-scale to targetH
 function placeNature(name, wx, wz, targetH, scaleVar = 0) {
   const base = natureModels[name];
@@ -183,7 +193,7 @@ function onClipReady(name, clip) {
 
 // ── Asset load tracking ───────────────────────────────────────────────────────
 let _assetsLoaded = 0;
-const _assetsTotal = 19; // 4 walk + run + hook + die + 12 nature assets
+const _assetsTotal = 23; // 4 walk + run + hook + die + 12 nature + 4 water gltf
 
 const _LOAD_TIPS = [
   'Хукай первым — побеждай последним',
@@ -347,6 +357,37 @@ function buildMap(obstacles) {
   for (let i = 0; i < 10; i++) {
     flat(riverCX, mh * (i + 0.4) / 10, riverHW * 1.65, 0.10, mRipple, 0.007, 5);
   }
+
+  // ── Мост через реку ───────────────────────────────────────────────────────
+  function placeBridge(name, wx, wz, targetSpan) {
+    const base = natureModels[name];
+    if (!base) return;
+    const m = base.clone(true);
+    const box = new THREE.Box3().setFromObject(m);
+    const sz = box.getSize(new THREE.Vector3());
+    // Rotate so the longest horizontal dim crosses the river (X-direction)
+    if (sz.z > sz.x) m.rotation.y = Math.PI / 2;
+    const horizDim = Math.max(sz.x, sz.z);
+    const s = targetSpan / horizDim;
+    m.scale.setScalar(s);
+    const box2 = new THREE.Box3().setFromObject(m);
+    m.position.set(wx, -box2.min.y * s, wz);
+    mapGroup.add(m);
+  }
+  placeBridge('bridge_stoneRound', riverCX, mh * 0.50, riverHW * 2.6);
+
+  // ── Водяные лилии ─────────────────────────────────────────────────────────
+  [
+    [riverCX - riverHW * 0.45, mh * 0.14, 'lily_large'],
+    [riverCX + riverHW * 0.38, mh * 0.28, 'lily_small'],
+    [riverCX - riverHW * 0.20, mh * 0.40, 'lily_small'],
+    [riverCX + riverHW * 0.50, mh * 0.62, 'lily_large'],
+    [riverCX - riverHW * 0.35, mh * 0.74, 'lily_small'],
+    [riverCX + riverHW * 0.22, mh * 0.86, 'lily_large'],
+  ].forEach(([wx, wz, name]) => placeNature(name, wx, wz, 0.22));
+
+  // ── Каноэ ─────────────────────────────────────────────────────────────────
+  placeNature('canoe', riverCX + riverHW * 0.25, mh * 0.34, 0.52);
 
   // ── Периметр (каменные стены) ─────────────────────────────────────────────
   const bH = 0.42, bT = 0.20;
