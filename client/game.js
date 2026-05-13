@@ -844,7 +844,7 @@ function upsertHook(hook, owner) {
   // Offset hook origin to right side of the character model
   const entry = charEntries.get(hook.ownerId);
   const rotY = entry ? entry.group.rotation.y : 0;
-  const rOff = 0.40; // world units to character's right
+  const rOff = 0.80; // world units to character's right
   const from = sw(owner.x, owner.y, 0.92).add(
     new THREE.Vector3(-Math.cos(rotY) * rOff, 0, Math.sin(rotY) * rOff)
   );
@@ -1380,7 +1380,7 @@ function updatePlayers(delta) {
         if (hasHook && !entry.prevHasHook) {
           entry.hookFiring = true;
           entry.hookTimer  = 0.55;
-          playAnim(entry, 'hook', 0.08, 3.32);
+          playAnim(entry, 'hook', 0.08, 6.64);
         }
         entry.prevHasHook = hasHook;
 
