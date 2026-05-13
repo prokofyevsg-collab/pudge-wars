@@ -4,6 +4,8 @@ const { Server } = require('socket.io');
 const path = require('path');
 const fs   = require('fs');
 
+const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, 'version.json'), 'utf8'));
+
 process.on('uncaughtException', err => console.error('[uncaughtException]', err));
 process.on('unhandledRejection', err => console.error('[unhandledRejection]', err));
 
@@ -32,6 +34,17 @@ function updatePlayerStats(statsId, name, kills, deaths, won) {
   if (won) s.wins++;
   s.games++;
 }
+
+app.get('/version', (_req, res) => res.json({ version }));
+
+app.post('/admin/broadcast', express.json(), (req, res) => {
+  if (req.headers['x-admin-secret'] !== process.env.ADMIN_SECRET)
+    return res.status(403).json({ error: 'forbidden' });
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ error: 'message required' });
+  sendGroupUpdate(message);
+  res.json({ ok: true });
+});
 
 app.get('/leaderboard', (_req, res) => {
   const rows = Object.values(statsDB)
@@ -745,9 +758,23 @@ io.on('connection', (socket) => {
   });
 });
 
+function sendGroupUpdate(text) {
+  const token  = process.env.BOT_TOKEN;
+  const chatId = process.env.NOTIFY_GROUP_ID;
+  if (!token || !chatId) { console.log('[notify] BOT_TOKEN or NOTIFY_GROUP_ID not set'); return; }
+  fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown', disable_web_page_preview: true }),
+  }).then(r => r.json()).then(d => {
+    if (!d.ok) console.error('[notify] send error', d.description);
+    else console.log('[notify] group notified');
+  }).catch(e => console.error('[notify]', e.message));
+}
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Pudge Wars server on port ${PORT}`);
+  console.log(`Pudge Wars v${version} on port ${PORT}`);
   startTelegramBot();
 });
 

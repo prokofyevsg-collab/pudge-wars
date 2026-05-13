@@ -1377,4 +1377,8 @@ document.getElementById('btn-lb-back').addEventListener('click', () => {
 });
 
 showScreen('menu');
+fetch('/version').then(r => r.json()).then(d => {
+  const el = document.getElementById('version-label');
+  if (el) el.textContent = `v${d.version}`;
+}).catch(() => {});
 animate();
