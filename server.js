@@ -770,7 +770,7 @@ function sendGroupUpdate(text, replyMarkup = null) {
   if (!token || !chatId) { console.log('[notify] BOT_TOKEN or NOTIFY_GROUP_ID not set'); return; }
   const payload = { chat_id: chatId, text, parse_mode: 'Markdown', disable_web_page_preview: true };
   payload.reply_markup = replyMarkup ?? {
-    inline_keyboard: [[{ text: '🎮 Играть в Pudge Wars', web_app: { url: gameUrl } }]],
+    inline_keyboard: [[{ text: '🎮 Играть в Pudge Wars', url: 'https://t.me/PudgeWars2Bot' }]],
   };
   fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
