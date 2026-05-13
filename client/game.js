@@ -796,7 +796,8 @@ function connectSocket() {
     myId = socket.id;
     if (d.mapW) { MAP_W = d.mapW; MAP_H = d.mapH; }
     positionCamera();
-    sPlayers = d.players; sHooks = [];
+    // Set up team info immediately (for HUD), but keep sPlayers empty until assets loaded
+    // so updatePlayers() doesn't create characters before pudgePool is ready
     const me = d.players.find(p => p.id === myId);
     if (me) {
       myTeam = me.team;
@@ -811,6 +812,9 @@ function connectSocket() {
     showScreen('loading');
     await waitForAssets();
     if (gameState !== 'countdown') return; // game ended while loading
+
+    // Assets ready — now populate sPlayers so characters are created with full pool
+    sPlayers = d.players; sHooks = [];
 
     // Models ready — show arena with countdown overlay
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
