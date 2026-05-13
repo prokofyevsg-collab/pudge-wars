@@ -551,6 +551,7 @@ function removeChar(id) {
 // ── Heart pickup ──────────────────────────────────────────────────────────────
 let heartGroup = null;
 let sHeart = null;
+let heartRenderPos = null; // smoothly interpolated position
 
 function makeHeartGroup() {
   const g = new THREE.Group();
@@ -574,11 +575,22 @@ function makeHeartGroup() {
 function updateHeartItem(d) {
   if (d.heart) {
     if (!heartGroup) { heartGroup = makeHeartGroup(); scene.add(heartGroup); }
+    if (!heartRenderPos) heartRenderPos = { x: d.heart.x, y: d.heart.y }; // snap on first appear
     sHeart = d.heart;
   } else {
     if (heartGroup) { scene.remove(heartGroup); heartGroup = null; }
     sHeart = null;
+    heartRenderPos = null;
   }
+}
+
+function showHeartPickupEffect() {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;font-size:40px;pointer-events:none;z-index:200;' +
+    'top:50%;left:50%;transform:translate(-50%,-50%);animation:heart-pop 0.75s ease-out forwards;';
+  el.textContent = '❤';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 750);
 }
 
 function addPickupFeed(pickup) {
@@ -593,6 +605,10 @@ function addPickupFeed(pickup) {
   setTimeout(() => { el.style.opacity = '0'; }, 2500);
   setTimeout(() => { el.remove(); }, 3800);
   while (feed.children.length > 5) feed.lastChild.remove();
+
+  // Effect for local player
+  const me = sPlayers.find(p => p.id === myId);
+  if (me && pickup.playerName === me.name) showHeartPickupEffect();
 }
 
 // ── Hook geometry ─────────────────────────────────────────────────────────────
@@ -1274,10 +1290,13 @@ function animate() {
     updatePlayers(delta);
     updateHooks();
     animateTorches();
-    // Animate heart (smooth bobbing/spin, 60 fps)
+    // Animate heart — lerp render pos toward server pos for smooth hook-pull
     if (heartGroup && sHeart) {
+      if (!heartRenderPos) heartRenderPos = { x: sHeart.x, y: sHeart.y };
+      heartRenderPos.x += (sHeart.x - heartRenderPos.x) * 0.22;
+      heartRenderPos.y += (sHeart.y - heartRenderPos.y) * 0.22;
       const t = Date.now();
-      heartGroup.position.set(sHeart.x * S, 0.55 + Math.sin(t / 500) * 0.1, sHeart.y * S);
+      heartGroup.position.set(heartRenderPos.x * S, 0.55 + Math.sin(t / 500) * 0.1, heartRenderPos.y * S);
       heartGroup.rotation.y = t / 900;
     }
   }

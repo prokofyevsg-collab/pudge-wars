@@ -256,7 +256,11 @@ class GameRoom {
     // Update hooks
     for (const [ownerId, hook] of this.hooks) {
       const owner = this.players.get(ownerId);
-      if (!owner) { this.hooks.delete(ownerId); continue; }
+      if (!owner || !owner.alive) {
+        if (hook.heartCaught) this.heartTimer = Math.max(this.heartTimer, 5); // ensure timer runs
+        this.hooks.delete(ownerId);
+        continue;
+      }
 
       if (hook.returning) {
         // Pull caught player with hook
@@ -360,6 +364,7 @@ class GameRoom {
             hook.heartCaught = true;
             hook.returning = true;
             this.heart = null;
+            this.heartTimer = 25; // prevent immediate respawn while heart is in flight
           }
         }
       }
@@ -370,8 +375,8 @@ class GameRoom {
       if (p.hitFlash > 0) p.hitFlash = Math.max(0, p.hitFlash - dt * 1000);
     }
 
-    // Heart item
-    this.heartTimer -= dt;
+    // Heart item — only tick timer when no heart is present
+    if (!this.heart) this.heartTimer -= dt;
     if (this.heartTimer <= 0 && !this.heart) {
       this.heart = {
         x: MAP_W / 2 + (Math.random() - 0.5) * 200,
