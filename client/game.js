@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { clone as SkeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 
 // ── Constants (keep in sync with server) ────────────────────────────────────
 const SERVER_URL   = window.location.origin;
@@ -141,7 +140,7 @@ function onClipReady(name, clip) {
 
 // ── Asset load tracking ───────────────────────────────────────────────────────
 let _assetsLoaded = 0;
-const _assetsTotal = 4; // 1 walk load (cloned x4) + run + hook + die
+const _assetsTotal = 7; // 4 walk models + run + hook + die
 
 const _LOAD_TIPS = [
   'Хукай первым — побеждай последним',
@@ -193,15 +192,14 @@ function waitForAssets() {
 
 // Pool of pre-loaded model scenes (one per possible player)
 const pudgePool = [];
-gltfLoader.load('assets/pudge/pudge-walk.glb', gltf => {
-  if (!walkClip && gltf.animations[0]) walkClip = gltf.animations[0];
-  for (let i = 0; i < 4; i++) {
-    const clone = SkeletonClone(gltf.scene);
-    clone.traverse(c => { if (c.isMesh) { c.castShadow = c.receiveShadow = true; } });
-    pudgePool.push(clone);
-  }
-  _onAsset();
-}, undefined, () => _onAsset());
+for (let i = 0; i < 4; i++) {
+  gltfLoader.load('assets/pudge/pudge-walk.glb', gltf => {
+    gltf.scene.traverse(c => { if (c.isMesh) { c.castShadow = c.receiveShadow = true; } });
+    if (!walkClip && gltf.animations[0]) walkClip = gltf.animations[0];
+    pudgePool.push(gltf.scene);
+    _onAsset();
+  }, undefined, () => _onAsset());
+}
 gltfLoader.load('assets/pudge/pudge-run.glb',  gltf => { runClip  = gltf.animations[0] ?? null; onClipReady('run',  runClip);  _onAsset(); }, undefined, () => _onAsset());
 gltfLoader.load('assets/pudge/pudge-hook.glb', gltf => { hookClip = gltf.animations[0] ?? null; onClipReady('hook', hookClip); _onAsset(); }, undefined, () => _onAsset());
 gltfLoader.load('assets/pudge/pudge-die.glb',  gltf => { dieClip  = gltf.animations[0] ?? null; onClipReady('die',  dieClip);  _onAsset(); }, undefined, () => _onAsset());
