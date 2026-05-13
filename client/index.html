@@ -123,7 +123,7 @@
     @media (orientation: portrait) { #rotate-overlay { display: flex; } }
 
     /* ─ Main menu redesign ─ */
-    #screen-menu { position: relative; gap: 16px; }
+    #screen-menu { position: relative; gap: 12px; }
 
     /* Atmospheric red glow behind menu */
     #screen-menu::before {
@@ -174,18 +174,15 @@
       50%       { transform: translateY(-5px); }
     }
 
-    /* Version + tagline badge */
-    .menu-version {
-      font-size: 12px; letter-spacing: 0.8px;
-      color: rgba(255,255,255,0.35);
-      background: rgba(231,76,60,0.08);
-      border: 1px solid rgba(231,76,60,0.18);
-      border-radius: 20px; padding: 3px 14px;
-      margin-top: -4px;
+    /* Version label — bottom-left corner */
+    #version-label {
+      position: fixed; bottom: 10px; left: 12px;
+      font-size: 11px; color: rgba(255,255,255,0.22);
+      letter-spacing: 0.5px; pointer-events: none; z-index: 5;
     }
 
     /* ─ Wooden plank buttons ─ */
-    .menu-planks { display: flex; flex-direction: column; gap: 10px; }
+    .menu-planks { display: flex; flex-direction: column; gap: 16px; }
 
     .wood-btn {
       position: relative;
@@ -267,13 +264,13 @@
 <body>
   <canvas id="canvas"></canvas>
   <canvas id="joy-canvas"></canvas>
+  <span id="version-label">v1.12</span>
 
   <div id="overlay">
     <!-- Menu -->
     <div id="screen-menu" class="screen active">
       <h1>PUDGE WARS</h1>
       <div class="menu-divider"><span>⚓</span></div>
-      <p class="menu-version"><span id="version-label">v1.12</span> · 2v2 арена</p>
       <div class="menu-planks">
         <button class="wood-btn wood-teal"  id="btn-pvp">⚔ НАЙТИ ИГРУ (2v2)</button>
         <button class="wood-btn wood-green" id="btn-bots">🤖 ИГРАТЬ vs БОТЫ</button>
