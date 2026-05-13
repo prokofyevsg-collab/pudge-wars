@@ -1374,7 +1374,7 @@ function updatePlayers(delta) {
         if (hasHook && !entry.prevHasHook) {
           entry.hookFiring = true;
           entry.hookTimer  = 0.55;
-          playAnim(entry, 'hook', 0.08);
+          playAnim(entry, 'hook', 0.08, 1.70);
         }
         entry.prevHasHook = hasHook;
 
