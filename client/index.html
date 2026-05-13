@@ -117,6 +117,120 @@
     @keyframes spin { from { transform: rotate(-30deg); } to { transform: rotate(30deg); } }
     @media (orientation: portrait) { #rotate-overlay { display: flex; } }
 
+    /* ─ Main menu redesign ─ */
+    #screen-menu { position: relative; gap: 16px; }
+
+    /* Atmospheric red glow behind menu */
+    #screen-menu::before {
+      content: '';
+      position: absolute;
+      width: 480px; height: 480px;
+      background: radial-gradient(ellipse, rgba(231,76,60,0.07) 0%, transparent 65%);
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%) scale(1);
+      animation: menu-atm 5s ease-in-out infinite;
+      pointer-events: none;
+      z-index: -1;
+    }
+    @keyframes menu-atm {
+      0%, 100% { opacity: 1;   transform: translate(-50%, -50%) scale(1);   }
+      50%       { opacity: 0.5; transform: translate(-50%, -50%) scale(1.35); }
+    }
+
+    /* Title (scoped to menu so gameover h1 is unchanged) */
+    #screen-menu h1 {
+      font-size: 52px;
+      background: linear-gradient(155deg, #ff7070 0%, #e74c3c 45%, #c0392b 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-shadow: none;
+      filter: drop-shadow(0 0 16px rgba(231,76,60,0.55));
+      animation: title-glow 3s ease-in-out infinite;
+      letter-spacing: 4px;
+    }
+    @keyframes title-glow {
+      0%, 100% { filter: drop-shadow(0 0 16px rgba(231,76,60,0.55)); }
+      50%       { filter: drop-shadow(0 0 30px rgba(231,76,60,0.95)); }
+    }
+
+    /* Decorative divider with floating hook */
+    .menu-divider {
+      display: flex; align-items: center; gap: 10px;
+      width: 230px; font-size: 15px; color: rgba(255,255,255,0.28);
+    }
+    .menu-divider::before, .menu-divider::after {
+      content: ''; flex: 1; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(231,76,60,0.4), transparent);
+    }
+    .menu-divider span { display: inline-block; animation: hook-float 2.6s ease-in-out infinite; }
+    @keyframes hook-float {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(-5px); }
+    }
+
+    /* Version + tagline badge */
+    .menu-version {
+      font-size: 12px; letter-spacing: 0.8px;
+      color: rgba(255,255,255,0.35);
+      background: rgba(231,76,60,0.08);
+      border: 1px solid rgba(231,76,60,0.18);
+      border-radius: 20px; padding: 3px 14px;
+      margin-top: -4px;
+    }
+
+    /* Glass card wrapping buttons */
+    .menu-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.065);
+      border-radius: 18px;
+      padding: 18px 14px;
+      display: flex; flex-direction: column; gap: 10px;
+      width: 248px;
+      box-shadow: 0 20px 48px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+
+    /* Shared menu button base */
+    .menu-btn {
+      font-family: 'Arial Black', sans-serif;
+      border: none; cursor: pointer;
+      border-radius: 10px; color: #fff;
+      width: 100%; letter-spacing: 0.4px;
+      transition: transform 0.12s ease;
+    }
+    .menu-btn:active { transform: scale(0.955); filter: none; }
+
+    /* Primary: Find match */
+    .menu-btn-pvp {
+      font-size: 17px; padding: 14px 20px;
+      background: linear-gradient(140deg, #e74c3c 0%, #c0392b 100%);
+      box-shadow: 0 4px 20px rgba(231,76,60,0.45), inset 0 1px 0 rgba(255,255,255,0.13);
+      animation: pvp-pulse 3s ease-in-out infinite;
+    }
+    @keyframes pvp-pulse {
+      0%, 100% { box-shadow: 0 4px 20px rgba(231,76,60,0.45), inset 0 1px 0 rgba(255,255,255,0.13); }
+      50%       { box-shadow: 0 4px 30px rgba(231,76,60,0.75), inset 0 1px 0 rgba(255,255,255,0.13); }
+    }
+    .menu-btn-pvp:active { animation: none; }
+
+    /* Secondary: vs bots */
+    .menu-btn-bots {
+      font-size: 15px; padding: 11px 20px;
+      background: rgba(39,174,96,0.10);
+      border: 1px solid rgba(39,174,96,0.32);
+      color: #2ecc71;
+    }
+    .menu-btn-bots:active { background: rgba(39,174,96,0.2); }
+
+    /* Tertiary: leaderboard */
+    .menu-btn-lb {
+      font-size: 14px; padding: 10px 20px;
+      background: rgba(108,52,131,0.10);
+      border: 1px solid rgba(108,52,131,0.28);
+      color: #bb8fce;
+    }
+    .menu-btn-lb:active { background: rgba(108,52,131,0.2); }
+
     /* ─ Leaderboard screen ─ */
     #lb-table { width: 100%; border-collapse: collapse; font-size: 12px; }
     #lb-table th { color: #666; font-weight: normal; padding: 4px 8px; text-align: center;
@@ -142,15 +256,13 @@
     <!-- Menu -->
     <div id="screen-menu" class="screen active">
       <h1>PUDGE WARS</h1>
-      <p class="subtitle">2 vs 2 · Изометрическая арена · <span id="version-label">v1.12</span></p>
-      <div class="instructions">
-        🕹 Левый джойстик — движение<br>
-        🎯 Правый джойстик — прицел и бросок крюка<br>
-        💀 2 попадания = противник повержен
+      <div class="menu-divider"><span>⚓</span></div>
+      <p class="menu-version"><span id="version-label">v1.12</span> · 2v2 арена</p>
+      <div class="menu-card">
+        <button class="menu-btn menu-btn-pvp" id="btn-pvp">⚔ НАЙТИ ИГРУ (2v2)</button>
+        <button class="menu-btn menu-btn-bots" id="btn-bots">🤖 ИГРАТЬ vs БОТЫ</button>
+        <button class="menu-btn menu-btn-lb" id="btn-leaderboard">🏆 ТАБЛИЦА ЛИДЕРОВ</button>
       </div>
-      <button class="btn" id="btn-pvp">НАЙТИ ИГРУ (2v2)</button>
-      <button class="btn btn-green" id="btn-bots">ИГРАТЬ vs БОТЫ</button>
-      <button class="btn" id="btn-leaderboard" style="background:#6c3483">🏆 ТАБЛИЦА ЛИДЕРОВ</button>
     </div>
 
     <!-- Lobby -->
