@@ -65,7 +65,7 @@ app.get('/leaderboard', (_req, res) => {
 const TICK_RATE = 30;
 const MAP_W = 2000;
 const MAP_H = 1200;
-const PLAYER_SPEED = 220;
+const PLAYER_SPEED = 270;
 const HOOK_SPEED = 550;
 const HOOK_RANGE = 700;
 const HOOK_COOLDOWN = 6000;
@@ -537,8 +537,8 @@ function tickBots(room, dt) {
     const stopDist = 380;
 
     if (nearestDist > stopDist) {
-      bot.vx = (dx / len) * PLAYER_SPEED * 0.55;
-      bot.vy = (dy / len) * PLAYER_SPEED * 0.55;
+      bot.vx = (dx / len) * PLAYER_SPEED * 0.62;
+      bot.vy = (dy / len) * PLAYER_SPEED * 0.62;
     } else {
       bot.vx = 0; bot.vy = 0;
     }

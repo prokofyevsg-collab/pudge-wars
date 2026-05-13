@@ -563,6 +563,7 @@ function getOrCreateChar(id, team) {
     group, ring, model, team, mixer, actions,
     currentAnim: null,
     prevX: null, prevY: null,
+    targetRotY: 0,
     prevHasHook: false, hookFiring: false, hookTimer: 0, hookAngle: 0,
   };
   charEntries.set(id, entry);
@@ -1179,6 +1180,14 @@ function drawJoysticks() {
   drawOneJoystick(aimBase,  aimJoy,  true);
 }
 
+// Shortest-path angle lerp (handles 0/2π wrap-around)
+function lerpAngle(a, b, t) {
+  let d = b - a;
+  while (d >  Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
 // ── Animation state machine ───────────────────────────────────────────────────
 function playAnim(entry, name, fade = 0.2, timeScale = 1.0) {
   const next = entry.actions[name];
@@ -1196,10 +1205,15 @@ function updatePlayers(delta) {
   const activeIds = new Set(sPlayers.map(p => p.id));
   for (const id of charEntries.keys()) if (!activeIds.has(id)) removeChar(id);
 
+  // Frame-rate independent factors
+  const posK = 1 - Math.exp(-delta * 22);   // position lerp (~22 Hz convergence)
+  const rotK = 1 - Math.exp(-delta * 11);   // rotation lerp (~0.3s for 180°)
+  const rotKFast = 1 - Math.exp(-delta * 22); // fast rotation for hook snap
+
   for (const p of sPlayers) {
     const entry = getOrCreateChar(p.id, p.team);
     const targetPos = sw(p.x, p.y, 0);
-    entry.group.position.lerp(targetPos, 0.28);
+    entry.group.position.lerp(targetPos, posK);
     entry.ring.material.opacity = p.alive ? 0.90 : 0.2;
 
     // Movement delta (server units per frame)
@@ -1208,22 +1222,20 @@ function updatePlayers(delta) {
     const dy = hasPrev ? p.y - entry.prevY : 0;
     const moveDist = Math.sqrt(dx * dx + dy * dy);
 
-    // Face movement direction (suppressed while hook is firing)
-    if (moveDist > 0.5 && p.alive && !entry.hookFiring) {
-      entry.group.rotation.y = Math.atan2(dx, dy);
+    // Update target rotation toward movement direction (suppressed while hook fires)
+    if (moveDist > 0.4 && p.alive && !entry.hookFiring) {
+      entry.targetRotY = Math.atan2(dx, dy);
     }
     entry.prevX = p.x; entry.prevY = p.y;
 
     // ── Animation state ──────────────────────────────────────────────────────
     if (entry.mixer) {
       if (!p.alive) {
-        // Death — play once and hold
         playAnim(entry, 'die', 0.15);
       } else {
         // Hook firing window
         const hasHook = sHooks.some(h => h.ownerId === p.id);
         if (hasHook && !entry.prevHasHook) {
-          // Hook just launched
           entry.hookFiring = true;
           entry.hookTimer  = 0.55;
           playAnim(entry, 'hook', 0.08);
@@ -1231,7 +1243,6 @@ function updatePlayers(delta) {
         entry.prevHasHook = hasHook;
 
         if (entry.hookFiring) {
-          // Face toward hook — update angle while hook is visible and far enough away
           const h = sHooks.find(hk => hk.ownerId === p.id);
           if (h) {
             const hdx = h.x - p.x, hdz = h.y - p.y;
@@ -1239,29 +1250,31 @@ function updatePlayers(delta) {
               entry.hookAngle = Math.atan2(hdx, hdz);
             }
           }
-          entry.group.rotation.y = entry.hookAngle;
+          // Snap quickly to hook direction
+          entry.targetRotY = entry.hookAngle;
+          entry.group.rotation.y = lerpAngle(entry.group.rotation.y, entry.targetRotY, rotKFast);
           entry.hookTimer -= delta;
           if (entry.hookTimer <= 0) entry.hookFiring = false;
         }
 
         if (!entry.hookFiring) {
+          // Apply smooth rotation
+          entry.group.rotation.y = lerpAngle(entry.group.rotation.y, entry.targetRotY, rotK);
+
           const isMe = p.id === myId;
           const joyLen = isMe ? Math.sqrt(moveJoy.nx ** 2 + moveJoy.ny ** 2) : 0;
 
-          // Smooth position delta for remote players to avoid animation jitter
-          // from bots oscillating around stop threshold
           if (!isMe) {
-            entry.smoothSpeed = (entry.smoothSpeed ?? 0) * 0.80 + moveDist * 0.20;
+            entry.smoothSpeed = (entry.smoothSpeed ?? 0) * 0.78 + moveDist * 0.22;
           }
           const speed = isMe ? joyLen : (entry.smoothSpeed ?? moveDist);
 
-          if (isMe ? joyLen > 0.55 : speed > 2.8) {
-            playAnim(entry, 'run',  0.18);
-          } else if (isMe ? joyLen > 0.08 : speed > 0.7) {
-            playAnim(entry, 'walk', 0.22);
+          if (isMe ? joyLen > 0.50 : speed > 2.5) {
+            playAnim(entry, 'run',  0.15);
+          } else if (isMe ? joyLen > 0.06 : speed > 0.6) {
+            playAnim(entry, 'walk', 0.20);
           } else {
-            // Idle — play walk very slowly so character breathes
-            playAnim(entry, 'walk', 0.30, 0.12);
+            playAnim(entry, 'walk', 0.30, 0.10);
           }
         }
       }
