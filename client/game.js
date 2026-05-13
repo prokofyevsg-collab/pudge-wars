@@ -124,6 +124,34 @@ function onClipReady(name, clip) {
   }
 }
 
+// ── Asset load tracking ───────────────────────────────────────────────────────
+let _assetsLoaded = 0;
+const _assetsTotal = 7; // 4 walk models + run + hook + die
+
+function _onAsset() {
+  _assetsLoaded++;
+  _updateLoadUI();
+}
+
+function _updateLoadUI() {
+  const pct = Math.min(100, Math.round(_assetsLoaded / _assetsTotal * 100));
+  const bar = document.getElementById('load-bar');
+  const lbl = document.getElementById('load-pct');
+  if (bar) bar.style.width = pct + '%';
+  if (lbl) lbl.textContent = pct + '%';
+}
+
+function waitForAssets() {
+  _updateLoadUI();
+  if (_assetsLoaded >= _assetsTotal) return Promise.resolve();
+  return new Promise(resolve => {
+    const id = setInterval(() => {
+      _updateLoadUI();
+      if (_assetsLoaded >= _assetsTotal) { clearInterval(id); _updateLoadUI(); resolve(); }
+    }, 60);
+  });
+}
+
 // Pool of pre-loaded model scenes (one per possible player)
 const pudgePool = [];
 for (let i = 0; i < 4; i++) {
@@ -131,18 +159,12 @@ for (let i = 0; i < 4; i++) {
     gltf.scene.traverse(c => { if (c.isMesh) { c.castShadow = c.receiveShadow = true; } });
     if (!walkClip && gltf.animations[0]) walkClip = gltf.animations[0];
     pudgePool.push(gltf.scene);
-  });
+    _onAsset();
+  }, undefined, () => _onAsset()); // count errors too so we never hang
 }
-gltfLoader.load('assets/pudge/pudge-run.glb',  gltf => { runClip  = gltf.animations[0] ?? null; onClipReady('run',  runClip);  });
-gltfLoader.load('assets/pudge/pudge-hook.glb', gltf => { hookClip = gltf.animations[0] ?? null; onClipReady('hook', hookClip); });
-gltfLoader.load('assets/pudge/pudge-die.glb',  gltf => { dieClip  = gltf.animations[0] ?? null; onClipReady('die',  dieClip);  });
-
-function waitForModel() {
-  if (pudgePool.length > 0) return Promise.resolve();
-  return new Promise(resolve => {
-    const id = setInterval(() => { if (pudgePool.length > 0) { clearInterval(id); resolve(); } }, 60);
-  });
-}
+gltfLoader.load('assets/pudge/pudge-run.glb',  gltf => { runClip  = gltf.animations[0] ?? null; onClipReady('run',  runClip);  _onAsset(); }, undefined, () => _onAsset());
+gltfLoader.load('assets/pudge/pudge-hook.glb', gltf => { hookClip = gltf.animations[0] ?? null; onClipReady('hook', hookClip); _onAsset(); }, undefined, () => _onAsset());
+gltfLoader.load('assets/pudge/pudge-die.glb',  gltf => { dieClip  = gltf.animations[0] ?? null; onClipReady('die',  dieClip);  _onAsset(); }, undefined, () => _onAsset());
 
 // ── Countdown 3-2-1 ───────────────────────────────────────────────────────────
 async function showCountdown() {
@@ -787,7 +809,7 @@ function connectSocket() {
     // 'countdown' state: scene renders but input is blocked
     gameState = 'countdown';
     showScreen('loading');
-    await waitForModel();
+    await waitForAssets();
     if (gameState !== 'countdown') return; // game ended while loading
 
     // Models ready — show arena with countdown overlay

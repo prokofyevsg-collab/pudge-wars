@@ -39,16 +39,21 @@
       transition: border-color 0.2s;
     }
 
-    /* ─ Loading spinner ─ */
-    .spinner {
-      width: 52px; height: 52px;
-      border: 5px solid rgba(255,255,255,0.12);
-      border-top-color: #e74c3c;
-      border-radius: 50%;
-      animation: spin-r 0.75s linear infinite;
+    /* ─ Loading screen ─ */
+    .loading-text { color: #888; font-size: 14px; letter-spacing: 1px; }
+    .load-bar-wrap {
+      width: 260px; height: 6px;
+      background: rgba(255,255,255,0.07);
+      border-radius: 4px; overflow: hidden;
+      margin-top: 4px;
     }
-    @keyframes spin-r { to { transform: rotate(360deg); } }
-    .loading-text { color: #999; font-size: 15px; margin-top: 4px; }
+    .load-bar-fill {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, #c0392b, #e74c3c, #ff6b6b);
+      border-radius: 4px;
+      transition: width 0.25s ease;
+    }
+    .load-pct { color: #555; font-size: 12px; margin-top: 6px; letter-spacing: 0.5px; }
 
     /* ─ In-game HUD ─ */
     #hud { position: absolute; top: 0; left: 0; right: 0; display: none;
@@ -303,8 +308,11 @@
 
     <!-- Loading models -->
     <div id="screen-loading" class="screen">
-      <div class="spinner"></div>
-      <p class="loading-text">Загрузка...</p>
+      <p class="loading-text">ЗАГРУЗКА РЕСУРСОВ</p>
+      <div class="load-bar-wrap">
+        <div id="load-bar" class="load-bar-fill"></div>
+      </div>
+      <p id="load-pct" class="load-pct">0%</p>
     </div>
 
     <!-- Game Over -->
