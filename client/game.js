@@ -317,15 +317,6 @@ function buildMap(obstacles) {
   shadowPlane.receiveShadow = true;
   mapGroup.add(shadowPlane);
 
-  // DEBUG: visible obstacle boxes — remove after calibration
-  const dbgMat = new THREE.MeshBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0.55, depthWrite: false });
-  obstacles.forEach(o => {
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(o.w * S, o.h * S), dbgMat);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(o.x * S, 0.02, o.y * S);
-    mapGroup.add(mesh);
-  });
-
   scene.add(mapGroup);
 
   torches.length = 0;
