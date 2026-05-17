@@ -317,22 +317,50 @@ function buildMap(obstacles) {
   shadowPlane.receiveShadow = true;
   mapGroup.add(shadowPlane);
 
-  // DEBUG: visible obstacle boxes
-  const dbgMat = new THREE.MeshBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0.55, depthWrite: false });
-  obstacles.forEach(o => {
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(o.w * S, o.h * S), dbgMat);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(o.x * S, 0.02, o.y * S);
-    mapGroup.add(mesh);
-  });
-
   scene.add(mapGroup);
+  drawDebugObstacles(obstacles);
 
   torches.length = 0;
   const fill = new THREE.PointLight(0xffffff, 2.5, mw * 3);
   fill.position.set(mw / 2, 6, mh / 2);
   scene.add(fill); torches.push(fill);
 }
+
+// ── Debug obstacle overlay (2D, CSS-cover aligned) ───────────────────────────
+let _dbgObstacles = [];
+
+function drawDebugObstacles(obstacles) {
+  _dbgObstacles = obstacles || [];
+  _redrawDebug();
+}
+
+function _redrawDebug() {
+  const cvs = document.getElementById('dbg-canvas');
+  if (!cvs) return;
+  const sw = window.innerWidth, sh = window.innerHeight;
+  cvs.width = sw; cvs.height = sh;
+  const ctx = cvs.getContext('2d');
+  ctx.clearRect(0, 0, sw, sh);
+  if (!_dbgObstacles.length) return;
+
+  // Replicate CSS background-size:cover for MAP_W×MAP_H image
+  const scale = Math.max(sw / MAP_W, sh / MAP_H);
+  const ox = (sw - MAP_W * scale) / 2;
+  const oy = (sh - MAP_H * scale) / 2;
+
+  ctx.fillStyle   = 'rgba(255,34,0,0.50)';
+  ctx.strokeStyle = 'rgba(255,100,0,0.95)';
+  ctx.lineWidth   = 2;
+  _dbgObstacles.forEach(o => {
+    const rx = (o.x - o.w / 2) * scale + ox;
+    const ry = (o.y - o.h / 2) * scale + oy;
+    const rw = o.w * scale, rh = o.h * scale;
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.strokeRect(rx, ry, rw, rh);
+  });
+}
+
+window.addEventListener('resize', _redrawDebug);
 
 // ── Characters ────────────────────────────────────────────────────────────────
 const charEntries = new Map();
