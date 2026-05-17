@@ -163,6 +163,19 @@ GLTF_WATER.forEach(name => {
   }, undefined, () => _onAsset());
 });
 
+// ── Новые ассеты карты — included in loading counter ─────────────────────────
+const NEW_MAP_ASSETS = [
+  'rock-formation', 'rock-pile', 'fallen-log', 'grass-tuft',
+  'stylized-pine', 'stylized-tree', 'tree-stump', 'crystal-well',
+];
+NEW_MAP_ASSETS.forEach(name => {
+  gltfLoader.load(`/newassets/${name}.glb`, gltf => {
+    _applyToonToNature(gltf.scene);
+    natureModels[name] = gltf.scene;
+    _onAsset();
+  }, undefined, () => _onAsset());
+});
+
 // Place a nature GLB model — deterministic rotation, auto-scale to targetH
 function placeNature(name, wx, wz, targetH, scaleVar = 0) {
   const base = natureModels[name];
@@ -193,7 +206,7 @@ function onClipReady(name, clip) {
 
 // ── Asset load tracking ───────────────────────────────────────────────────────
 let _assetsLoaded = 0;
-const _assetsTotal = 22; // 4 walk + run + hook + die + 12 nature + 3 water gltf
+const _assetsTotal = 30; // 4 anim + run + hook + die + 12 nature + 3 water gltf + 8 new map
 
 const _LOAD_TIPS = [
   'Хукай первым — побеждай последним',
@@ -292,32 +305,35 @@ function buildMap(obstacles) {
   mapGroup = new THREE.Group();
   const mw = MAP_W * S, mh = MAP_H * S;
 
-  // ── Геометрия реки (вертикальная полоса по центру x) ─────────────────────
+  // ── River geometry (matches server WATER_ZONES) ───────────────────────────
   const riverCX = mw / 2;
-  const riverHW = mw * 0.085;          // полуширина воды в world-units ≈ 1.7
-  const bankW   = mw * 0.048;          // полоса грязного берега ≈ 1.0
-  const leftEnd  = riverCX - riverHW - bankW;   // правая граница левой травы
-  const rightSt  = riverCX + riverHW + bankW;   // левая граница правой травы
+  const riverHW = mw * 0.05;           // half-width ≈ 1.0 world units (100 server units)
+  const bankW   = mw * 0.038;          // mud bank strip
+  const leftEnd  = riverCX - riverHW - bankW;
+  const rightSt  = riverCX + riverHW + bankW;
 
-  // ── Материалы (cel-shading) ───────────────────────────────────────────────
+  // Ford gaps (world Z): top ford z=2.4-3.6, bottom ford z=8.4-9.6
+  const fordTZ = mh * 0.25;   // 3.0 — center of top ford
+  const fordBZ = mh * 0.75;   // 9.0 — center of bottom ford
+  const fordHZ = mh * 0.05;   // 0.6 — half-height of ford gap
+
+  // ── Materials ─────────────────────────────────────────────────────────────
   const T = (color, opts = {}) => new THREE.MeshToonMaterial({ color, gradientMap: toonGrad, ...opts });
   const mVoid   = T(0x0a1206);
-  const mGrassA = T(0x5ec22e); // vivid Pandoria-style grass
-  const mGrassB = T(0x4aaa1e); // slightly darker grass tile
-  const mDirt   = T(0xb08848); // warm sandy dirt
-  const mMud    = T(0x8a6638); // mud by riverbank
-  const mWater  = T(0x1ac4d8, { transparent: true, opacity: 0.88 }); // turquoise river
-  const mDeep   = T(0x0fa0b8, { transparent: true, opacity: 0.92 }); // deep water
-  const mRipple = new THREE.MeshBasicMaterial({ color: 0x88eeff, transparent: true, opacity: 0.20 });
-  const mBark   = T(0x8a5228); // warm brown bark
-  const mLeafA  = T(0x32b818); // bright leaf
-  const mLeafB  = T(0x229010); // medium leaf
-  const mLeafC  = T(0x156008); // dark leaf
-  const mRock   = T(0x8a8a78); // warm grey rock
-  const mStone  = T(0xaaaa90); // lighter stone
-  const mWall   = T(0x6a6a58); // stone wall
-  const mFount  = T(0x88bbdd); // fountain
-  const mWaterF = new THREE.MeshBasicMaterial({ color: 0x44ddff, transparent: true, opacity: 0.72 });
+  const mGrassA = T(0x5ec22e);
+  const mDirt   = T(0xb08848);
+  const mMud    = T(0x8a6638);
+  const mSand   = T(0xc8b47a);
+  const mWater  = T(0x1ac4d8, { transparent: true, opacity: 0.88 });
+  const mDeep   = T(0x0fa0b8, { transparent: true, opacity: 0.92 });
+  const mRipple = new THREE.MeshBasicMaterial({ color: 0x88eeff, transparent: true, opacity: 0.18 });
+  const mBark   = T(0x8a5228);
+  const mLeafA  = T(0x32b818);
+  const mLeafB  = T(0x229010);
+  const mLeafC  = T(0x156008);
+  const mRock   = T(0x8a8a78);
+  const mWall   = T(0x6a6a58);
+  const mIsland = T(0x52b820);   // island grass — slightly brighter
 
   function flat(x, z, w, d, mat, y = 0, ro = 0) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
@@ -334,49 +350,128 @@ function buildMap(obstacles) {
     mapGroup.add(m); return m;
   }
 
-  // ── Базовый слой (заполняет пространство за пределами карты) ─────────────
-  flat(mw / 2, mh / 2, mw * 2.5, mh * 2.5, mGrassA, -0.015);     // трава за краями
-  flat(riverCX, mh / 2, riverHW * 2, mh * 2.5, mWater, -0.010, 3); // река тоже тянется
-  flat(mw / 2, mh / 2, 600, 600, mVoid, -0.02);                    // чёрная подложка (дальний план)
+  // ── Base layer ────────────────────────────────────────────────────────────
+  flat(mw / 2, mh / 2, mw * 2.5, mh * 2.5, mGrassA, -0.015);
+  flat(riverCX, mh / 2, riverHW * 2, mh * 2.5, mWater, -0.010, 3);
+  flat(mw / 2, mh / 2, 600, 600, mVoid, -0.02);
 
-  // ── Трава (сплошной цвет, без шахматки) ──────────────────────────────────
+  // ── Grass fields (left and right of river) ────────────────────────────────
   flat(leftEnd / 2, mh / 2, leftEnd, mh, mGrassA, 0.001, 1);
   flat(rightSt + (mw - rightSt) / 2, mh / 2, mw - rightSt, mh, mGrassA, 0.001, 1);
 
-  // ── Грязевые берега ───────────────────────────────────────────────────────
+  // ── Mud banks (full height — visual continuity) ───────────────────────────
   flat(riverCX - riverHW - bankW / 2, mh / 2, bankW, mh, mMud,  0.003, 2);
   flat(riverCX + riverHW + bankW / 2, mh / 2, bankW, mh, mMud,  0.003, 2);
-  // Переходные грязевые полоски (светлее)
-  flat(riverCX - riverHW - bankW - 0.12, mh / 2, 0.28, mh, mDirt, 0.002, 2);
-  flat(riverCX + riverHW + bankW + 0.12, mh / 2, 0.28, mh, mDirt, 0.002, 2);
+  flat(riverCX - riverHW - bankW - 0.10, mh / 2, 0.22, mh, mDirt, 0.002, 2);
+  flat(riverCX + riverHW + bankW + 0.10, mh / 2, 0.22, mh, mDirt, 0.002, 2);
 
-  // ── Вода ──────────────────────────────────────────────────────────────────
-  flat(riverCX, mh / 2, riverHW * 2, mh, mWater, 0.005, 3);
-  flat(riverCX, mh / 2, riverHW * 0.75, mh, mDeep, 0.006, 4);
-  // Рябь (горизонтальные полосы)
-  for (let i = 0; i < 10; i++) {
-    flat(riverCX, mh * (i + 0.4) / 10, riverHW * 1.65, 0.10, mRipple, 0.007, 5);
+  // ── River water — 3 sections with ford gaps ───────────────────────────────
+  // Top section  (y: 0 → 2.4)
+  flat(riverCX, mh * 0.10,  riverHW * 2, mh * 0.20, mWater, 0.005, 3);
+  flat(riverCX, mh * 0.10,  riverHW * 0.6, mh * 0.20, mDeep,  0.006, 4);
+  // Middle section (y: 3.6 → 8.4)
+  flat(riverCX, mh * 0.60,  riverHW * 2, mh * 0.40, mWater, 0.005, 3);
+  flat(riverCX, mh * 0.60,  riverHW * 0.6, mh * 0.40, mDeep,  0.006, 4);
+  // Bottom section (y: 9.6 → 12.0)
+  flat(riverCX, mh * 0.90,  riverHW * 2, mh * 0.20, mWater, 0.005, 3);
+  flat(riverCX, mh * 0.90,  riverHW * 0.6, mh * 0.20, mDeep,  0.006, 4);
+
+  // Ripple lines (only inside water sections, skip fords)
+  for (let i = 0; i < 12; i++) {
+    const wz = mh * (i + 0.5) / 12;
+    const inFordT = Math.abs(wz - fordTZ) < fordHZ * 1.2;
+    const inFordB = Math.abs(wz - fordBZ) < fordHZ * 1.2;
+    if (inFordT || inFordB) continue;
+    flat(riverCX, wz, riverHW * 1.7, 0.08, mRipple, 0.007, 5);
   }
 
-  // ── Водяные лилии (3 штуки) ──────────────────────────────────────────────
+  // ── Ford crossings — sandy ground + stepping stones ───────────────────────
+  [fordTZ, fordBZ].forEach((fz, fi) => {
+    // Sandy ford ground
+    flat(riverCX, fz, riverHW * 2, fordHZ * 2, mSand, 0.008, 6);
+    flat(riverCX, fz, riverHW * 1.0, fordHZ * 2, mMud,  0.009, 7);
+    // Stepping stones across the ford (3 stones)
+    for (let i = -1; i <= 1; i++) {
+      const sx = riverCX + i * riverHW * 0.55;
+      const sz = fz + (fi % 2 === 0 ? i * 0.10 : -i * 0.10);
+      const stone = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.25, 0.09, 8), mRock);
+      stone.position.set(sx, 0.045, sz);
+      stone.rotation.y = i * 1.1 + fi * 0.7;
+      stone.castShadow = true;
+      mapGroup.add(stone);
+    }
+    // Small rocks at ford edges
+    [-1, 1].forEach(side => {
+      const rx = riverCX + side * (riverHW + bankW * 0.5);
+      const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(0.14, 0), mRock);
+      rk.position.set(rx, 0.09, fz + side * 0.15);
+      rk.rotation.y = rx * 3.1;
+      rk.castShadow = true;
+      mapGroup.add(rk);
+    });
+  });
+
+  // Water lilies — in water sections only (not ford gaps)
   [
-    [riverCX - riverHW * 0.42, mh * 0.20, 'lily_large'],
-    [riverCX + riverHW * 0.35, mh * 0.50, 'lily_small'],
-    [riverCX - riverHW * 0.28, mh * 0.78, 'lily_large'],
+    [riverCX - riverHW * 0.38, mh * 0.13, 'lily_large'],
+    [riverCX + riverHW * 0.30, mh * 0.55, 'lily_small'],
+    [riverCX - riverHW * 0.25, mh * 0.87, 'lily_large'],
   ].forEach(([wx, wz, name]) => placeNature(name, wx, wz, 0.22));
 
-  // ── Каноэ ─────────────────────────────────────────────────────────────────
-  placeNature('canoe', riverCX + riverHW * 0.25, mh * 0.34, 0.52);
+  // Canoe drifting in middle section
+  placeNature('canoe', riverCX + riverHW * 0.28, mh * 0.44, 0.48);
 
-  // ── Периметр (каменные стены) ─────────────────────────────────────────────
+  // ── Center island ─────────────────────────────────────────────────────────
+  const islandX = riverCX, islandZ = mh / 2;
+  const islandR = 0.72;
+
+  // Island ground platform
+  const islandBase = new THREE.Mesh(
+    new THREE.CylinderGeometry(islandR, islandR * 0.82, 0.14, 16),
+    mIsland
+  );
+  islandBase.position.set(islandX, 0.07, islandZ);
+  islandBase.castShadow = islandBase.receiveShadow = true;
+  mapGroup.add(islandBase);
+
+  // Island dirt rim
+  const islandRim = new THREE.Mesh(
+    new THREE.CylinderGeometry(islandR * 0.80, islandR * 0.95, 0.06, 16),
+    mMud
+  );
+  islandRim.position.set(islandX, 0.03, islandZ);
+  islandRim.receiveShadow = true;
+  mapGroup.add(islandRim);
+
+  // Rock ring around island
+  for (let i = 0; i < 9; i++) {
+    const angle = (i / 9) * Math.PI * 2;
+    const rx = islandX + Math.cos(angle) * islandR * 0.90;
+    const rz = islandZ + Math.sin(angle) * islandR * 0.90;
+    const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(0.11 + (i % 3) * 0.03, 0), mRock);
+    rk.position.set(rx, 0.11, rz);
+    rk.rotation.y = angle + i * 0.7;
+    rk.castShadow = true;
+    mapGroup.add(rk);
+  }
+
+  // Pine tree on island
+  if (natureModels['stylized-pine']) {
+    placeNature('stylized-pine', islandX, islandZ, 1.5);
+  } else {
+    placeNature('tree', islandX, islandZ, 1.3);
+  }
+
+  // ── Perimeter walls ───────────────────────────────────────────────────────
   const bH = 0.42, bT = 0.20;
   box3(mw / 2, bH / 2, -bT / 2,   mw + bT * 2, bH, bT, mWall);
   box3(mw / 2, bH / 2, mh + bT/2, mw + bT * 2, bH, bT, mWall);
   box3(-bT / 2, bH / 2, mh / 2,   bT, bH, mh, mWall);
   box3(mw + bT/2, bH / 2, mh / 2, bT, bH, mh, mWall);
 
-  // ── Деревья ───────────────────────────────────────────────────────────────
-  const treeVariants = ['tree', 'tree-tall', 'tree-autumn', 'tree-autumn-tall'];
+  // ── Trees (border forest) ─────────────────────────────────────────────────
+  const treeVariants = ['tree', 'tree-tall', 'tree-autumn', 'tree-autumn-tall',
+                        'stylized-tree', 'stylized-pine'];
   function addTree(wx, wz, sc = 1.0) {
     const vi = Math.abs(Math.round(wx * 31 + wz * 17)) % treeVariants.length;
     const name = treeVariants[vi];
@@ -402,7 +497,7 @@ function buildMap(obstacles) {
     crown.castShadow = true; mapGroup.add(crown);
   }
 
-  // Левая сторона — плотный лесной бордюр
+  // Left border
   [
     [0.06, 0.07, 1.1], [0.20, 0.19, 1.2], [0.09, 0.36, 0.9],
     [0.28, 0.52, 1.0], [0.07, 0.68, 1.2], [0.23, 0.83, 1.0],
@@ -412,7 +507,7 @@ function buildMap(obstacles) {
     [0.08, 0.45, 1.05],[0.30, 0.25, 0.9], [0.22, 0.73, 1.0],
   ].forEach(([fx, fz, sc]) => addTree(fx * leftEnd, fz * mh, sc));
 
-  // Правая сторона (зеркально)
+  // Right border (mirrored)
   [
     [0.06, 0.07, 1.1], [0.20, 0.19, 1.2], [0.09, 0.36, 0.9],
     [0.28, 0.52, 1.0], [0.07, 0.68, 1.2], [0.23, 0.83, 1.0],
@@ -422,122 +517,113 @@ function buildMap(obstacles) {
     [0.08, 0.45, 1.05],[0.30, 0.25, 0.9], [0.22, 0.73, 1.0],
   ].forEach(([fx, fz, sc]) => addTree(mw - fx * (mw - rightSt), fz * mh, sc));
 
-  // Деревья вдоль верхней и нижней стен
+  // Top and bottom wall trees
   [
     [0.08, 0.03, 0.85], [0.22, 0.04, 0.95], [0.42, 0.03, 0.80],
     [0.58, 0.04, 0.90], [0.78, 0.03, 0.85], [0.92, 0.04, 0.90],
   ].forEach(([fx, fz, sc]) => {
     const wx = fx * mw;
-    if (wx > leftEnd + 0.5 && wx < rightSt - 0.5) return; // skip over river
+    if (wx > leftEnd + 0.5 && wx < rightSt - 0.5) return;
     addTree(wx, fz * mh, sc);
     addTree(wx, (1 - fz) * mh, sc);
   });
 
-  // ── Камни вдоль берега — 2 по краям ────────────────────────────────────────
+  // ── Obstacles from server — rendered as rock formations ───────────────────
   const rockVariants = ['rock-a', 'rock-b', 'rock-c', 'rock-flat-grass'];
-  [0.10, 0.90].forEach((fz, i) => {
-    const z = fz * mh;
-    const sc = 1.0 + (i % 2) * 0.30;
-    const offL = (i % 2 === 0 ? 0.10 : -0.08);
-    const offR = -offL;
-    [
-      [riverCX - riverHW - bankW * 0.35 + offL, z],
-      [riverCX + riverHW + bankW * 0.35 + offR, z],
-    ].forEach(([rx, rz]) => {
-      const rname = rockVariants[(i + Math.round(rx * 2)) % rockVariants.length];
-      if (natureModels[rname]) {
-        placeNature(rname, rx, rz, 0.45 * sc);
-      } else {
-        const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22 * sc, 0), mRock);
-        r.position.set(rx, 0.09 * sc, rz); r.rotation.y = fz * 7.3;
-        r.castShadow = true; mapGroup.add(r);
-      }
-    });
-  });
+  obstacles.forEach((o, i) => {
+    if (o.island) return; // island is rendered above
 
-  // ── Трава — немного, разбросана по полю ─────────────────────────────────
-  [
-    [0.25, 0.22, 'patch-grass-large'], [0.55, 0.68, 'grass-large'],
-    [0.42, 0.45, 'patch-grass'],       [0.18, 0.80, 'patch-grass-large'],
-    [0.62, 0.30, 'patch-grass'],       [0.35, 0.88, 'grass-large'],
-  ].forEach(([fx, fz, gname]) => {
-    placeNature(gname, fx * leftEnd, fz * mh, 0.34);
-    placeNature(gname, mw - fx * (mw - rightSt), fz * mh, 0.34);
-  });
-
-
-  // ── Камни в поле — 2 штуки на сторону, крупные ───────────────────────────
-  [
-    [0.58, 0.28, 1.4], [0.40, 0.72, 1.2],
-  ].forEach(([fx, fz, sc], i) => {
-    const rname = rockVariants[i % 2];
-    [fx * leftEnd, mw - fx * (mw - rightSt)].forEach(rx => {
-      if (natureModels[rname]) {
-        placeNature(rname, rx, fz * mh, 0.42 * sc);
-      } else {
-        const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(0.21 * sc, 0), mRock);
-        rk.position.set(rx, 0.08, fz * mh);
-        rk.rotation.y = fx * 5.7; rk.castShadow = true; mapGroup.add(rk);
-      }
-    });
-  });
-
-  // ── Пригорки — крупные ───────────────────────────────────────────────────
-  function addHill(wx, wz, r) {
-    const dome = new THREE.Mesh(
-      new THREE.SphereGeometry(r, 12, 7, 0, Math.PI * 2, 0, Math.PI * 0.48),
-      T(0x4aaa1e)
-    );
-    dome.position.set(wx, 0, wz);
-    dome.castShadow = true; dome.receiveShadow = true;
-    mapGroup.add(dome);
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.95, r * 1.08, 0.05, 12), T(0x3a8818));
-    base.position.set(wx, 0.025, wz);
-    base.receiveShadow = true; mapGroup.add(base);
-  }
-  [
-    [0.22, 0.18, 0.88], [0.55, 0.75, 0.78],
-    [0.40, 0.50, 0.92],
-  ].forEach(([fx, fz, r]) => {
-    addHill(fx * leftEnd, fz * mh, r);
-    addHill(mw - fx * (mw - rightSt), fz * mh, r);
-  });
-
-
-  // ── Препятствия-пни (данные сервера) ─────────────────────────────────────
-  obstacles.forEach(o => {
     const cx = o.x * S, cz = o.y * S;
-    const r = Math.min(o.w, o.h) * S * 0.38;
-    const stH = 0.46;
-    const st = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.52, r * 0.72, stH, 10), mBark);
-    st.position.set(cx, stH / 2, cz); st.castShadow = true; mapGroup.add(st);
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.58, r * 0.58, 0.06, 10),
-      T(0x9a6840));
-    cap.position.set(cx, stH + 0.02, cz); mapGroup.add(cap);
-    const sh = new THREE.Mesh(new THREE.CircleGeometry(r * 0.95, 12),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 }));
-    sh.rotation.x = -Math.PI / 2; sh.position.set(cx, 0.01, cz);
-    sh.renderOrder = 2; mapGroup.add(sh);
+    const sc = Math.min(o.w, o.h) * S * 0.90;
+
+    // Use rock-formation / rock-pile new assets if loaded, else kenney rocks
+    const newRockName = (i % 2 === 0) ? 'rock-formation' : 'rock-pile';
+    if (natureModels[newRockName]) {
+      placeNature(newRockName, cx, cz, sc * 1.2);
+    } else {
+      const rname = rockVariants[i % rockVariants.length];
+      if (natureModels[rname]) {
+        placeNature(rname, cx, cz, sc);
+      } else {
+        const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(sc * 0.45, 0), mRock);
+        rk.position.set(cx, sc * 0.18, cz);
+        rk.rotation.y = cx * 2.3;
+        rk.castShadow = true;
+        mapGroup.add(rk);
+      }
+    }
+    // Small shadow disc
+    const sh = new THREE.Mesh(new THREE.CircleGeometry(sc * 0.5, 10),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }));
+    sh.rotation.x = -Math.PI / 2;
+    sh.position.set(cx, 0.01, cz);
+    sh.renderOrder = 2;
+    mapGroup.add(sh);
+  });
+
+  // ── Extra cover: fallen logs (visual only, mid-field ambush feel) ─────────
+  [
+    [0.62, 0.33], [0.62, 0.67],   // left side, near ford exits
+    [0.38, 0.33], [0.38, 0.67],   // right side
+  ].forEach(([fx, fz]) => {
+    const wx = fx * mw, wz = fz * mh;
+    if (natureModels['fallen-log']) {
+      placeNature('fallen-log', wx, wz, 0.55);
+    }
+  });
+
+  // ── Grass tufts — hiding spots near fords ────────────────────────────────
+  [
+    [0.40, 0.22], [0.42, 0.77],   // left bank near fords
+    [0.60, 0.22], [0.58, 0.77],   // right bank near fords
+    [0.30, 0.50], [0.70, 0.50],   // mid-field
+  ].forEach(([fx, fz]) => {
+    const wx = fx * mw, wz = fz * mh;
+    if (natureModels['grass-tuft']) {
+      placeNature('grass-tuft', wx, wz, 0.40);
+    }
+    if (natureModels['patch-grass']) {
+      placeNature('patch-grass', wx + 0.18, wz - 0.10, 0.28);
+    }
+  });
+
+  // ── Crystal wells at base areas (spawn zones) ────────────────────────────
+  [
+    [0.10, 0.38],   // team 0 base top
+    [0.10, 0.62],   // team 0 base bottom
+    [0.90, 0.38],   // team 1 base top
+    [0.90, 0.62],   // team 1 base bottom
+  ].forEach(([fx, fz]) => {
+    const wx = fx * mw, wz = fz * mh;
+    if (natureModels['crystal-well']) {
+      placeNature('crystal-well', wx, wz, 0.60);
+    }
   });
 
   scene.add(mapGroup);
 
-  // ── Освещение ─────────────────────────────────────────────────────────────
+  // ── Lighting ──────────────────────────────────────────────────────────────
   torches.length = 0;
 
-  // Речной свет по центру
-  const riverGlow = new THREE.PointLight(0x2266cc, 2.8, riverHW * 14);
-  riverGlow.position.set(riverCX, 0.6, mh * 0.5); scene.add(riverGlow); torches.push(riverGlow);
+  // River glow
+  const riverGlow = new THREE.PointLight(0x1a88cc, 3.0, riverHW * 18);
+  riverGlow.position.set(riverCX, 0.7, mh * 0.5); scene.add(riverGlow); torches.push(riverGlow);
 
-  // Солнечный свет по сторонам (зеленоватый)
+  // Ford accent lights (warm glow at crossing points)
+  [fordTZ, fordBZ].forEach(fz => {
+    const fl = new THREE.PointLight(0xddcc88, 1.8, riverHW * 8);
+    fl.position.set(riverCX, 0.5, fz); scene.add(fl); torches.push(fl);
+  });
+
+  // Side fill lights
   const sunL = new THREE.PointLight(0x88cc55, 1.4, mw * 0.65);
-  sunL.position.set(mw * 0.18, 3.5, mh * 0.5); scene.add(sunL); torches.push(sunL);
+  sunL.position.set(mw * 0.15, 3.5, mh * 0.5); scene.add(sunL); torches.push(sunL);
   const sunR = new THREE.PointLight(0x55aa88, 1.4, mw * 0.65);
-  sunR.position.set(mw * 0.82, 3.5, mh * 0.5); scene.add(sunR); torches.push(sunR);
+  sunR.position.set(mw * 0.85, 3.5, mh * 0.5); scene.add(sunR); torches.push(sunR);
 
-  // Маленькие огни по углам
+  // Corner accent lights
   [[0.06,0.06],[0.94,0.06],[0.06,0.94],[0.94,0.94]].forEach(([fx,fz]) => {
-    const l = new THREE.PointLight(0xffcc44, 1.8, mw * 0.28);
+    const l = new THREE.PointLight(0xffcc44, 1.6, mw * 0.26);
     l.position.set(mw * fx, 1.2, mh * fz); scene.add(l); torches.push(l);
   });
 }

@@ -33,6 +33,7 @@ app.use(express.static(path.join(__dirname, 'client'), {
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 app.use('/nature', express.static(path.join(__dirname, 'assets', 'GLB format')));
 app.use('/gltf', express.static(path.join(__dirname, 'assets', 'GLTF format')));
+app.use('/newassets', express.static(path.join(__dirname, 'assets', 'new assets for map')));
 
 // --- Stats ---
 const STATS_FILE = path.join(__dirname, 'stats.json');
@@ -90,34 +91,42 @@ const HOOK_COOLDOWN = 6000;
 const PLAYER_RADIUS = 22;
 const HOOK_HIT_RADIUS = 18;
 
-// Spawn positions: [team0p0, team1p0, team0p1, team1p1]
+// Spawn positions: team 0 = left mid, team 1 = right mid
 const SPAWNS = [
-  { x: 280, y: 280 },
-  { x: MAP_W - 280, y: MAP_H - 280 },
-  { x: 280, y: MAP_H - 280 },
-  { x: MAP_W - 280, y: 280 },
+  { x: 260, y: 400 },
+  { x: MAP_W - 260, y: MAP_H - 400 },
+  { x: 260, y: MAP_H - 400 },
+  { x: MAP_W - 260, y: 400 },
 ];
 
-// Obstacles (rect {x,y,w,h} centered)
-// River runs vertically at x=MAP_W/2 ± 200. Trees stay on left (x<650) or right (x>1350).
+// River constants
+const RIVER_CX = MAP_W / 2;   // 1000
+const RIVER_W  = 200;          // total river width (narrower for gameplay)
+
+// River blocks movement in 3 sections; ford gaps at y≈240-360 (top) and y≈840-960 (bottom)
+const WATER_ZONES = [
+  { x: RIVER_CX, y: 120,  w: RIVER_W, h: 240 },   // top section    y:0-240
+  { x: RIVER_CX, y: 600,  w: RIVER_W, h: 480 },   // middle section y:360-840
+  { x: RIVER_CX, y: 1080, w: RIVER_W, h: 240 },   // bottom section y:960-1200
+];
+
+// Strategic obstacles — rocks for cover near fords + center island
 const OBSTACLES = [
-  // Left side trees
-  { x: 180,  y: 180,  w: 90, h: 90 },
-  { x: 480,  y: 140,  w: 90, h: 90 },
-  { x: 150,  y: 500,  w: 90, h: 90 },
-  { x: 420,  y: 760,  w: 90, h: 90 },
-  { x: 180,  y: 1020, w: 90, h: 90 },
-  // Right side trees
-  { x: 1820, y: 180,  w: 90, h: 90 },
-  { x: 1520, y: 140,  w: 90, h: 90 },
-  { x: 1850, y: 500,  w: 90, h: 90 },
-  { x: 1580, y: 760,  w: 90, h: 90 },
-  { x: 1820, y: 1020, w: 90, h: 90 },
+  // Rocks flanking the upper ford (y≈300) — hook angles and cover
+  { x: 820,  y: 270, w: 90, h: 90 },
+  { x: 1180, y: 330, w: 90, h: 90 },
+  // Rocks flanking the lower ford (y≈900)
+  { x: 820,  y: 930, w: 90, h: 90 },
+  { x: 1180, y: 870, w: 90, h: 90 },
+  // Mid-field cover — left half (ambush spots)
+  { x: 560,  y: 390, w: 90, h: 90 },
+  { x: 480,  y: 760, w: 90, h: 90 },
+  // Mid-field cover — right half (mirrored)
+  { x: 1440, y: 390, w: 90, h: 90 },
+  { x: 1520, y: 760, w: 90, h: 90 },
+  // Center island — blocks hooks and walking, creates tactical geometry
+  { x: 1000, y: 600, w: 130, h: 160, island: true },
 ];
-
-// River water zone — blocks player movement, hooks fly over it freely
-// Width = MAP_W * 0.085 * 2 ≈ 340 server units centered at MAP_W/2
-const WATER_ZONE = { x: MAP_W / 2, y: MAP_H / 2, w: 340, h: MAP_H + 200 };
 
 // --- Helpers ---
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
@@ -130,12 +139,14 @@ function circleVsRect(cx, cy, r, rx, ry, rw, rh) {
 }
 
 function resolveWater(p, r) {
-  const z = WATER_ZONE;
-  if (!circleVsRect(p.x, p.y, r, z.x, z.y, z.w, z.h)) return;
-  const edgeLeft  = z.x - z.w / 2;
-  const edgeRight = z.x + z.w / 2;
-  if (Math.abs(p.x - edgeLeft) < Math.abs(p.x - edgeRight)) p.x = edgeLeft - r;
-  else p.x = edgeRight + r;
+  for (const z of WATER_ZONES) {
+    if (!circleVsRect(p.x, p.y, r, z.x, z.y, z.w, z.h)) continue;
+    const edgeLeft  = z.x - z.w / 2;
+    const edgeRight = z.x + z.w / 2;
+    if (Math.abs(p.x - edgeLeft) < Math.abs(p.x - edgeRight)) p.x = edgeLeft - r;
+    else p.x = edgeRight + r;
+    break;
+  }
 }
 
 function resolveObstacleCircle(p, r) {
@@ -396,9 +407,12 @@ class GameRoom {
     // Heart item — only tick timer when no heart is present
     if (!this.heart) this.heartTimer -= dt;
     if (this.heartTimer <= 0 && !this.heart) {
+      // Spawn heart near top or bottom ford, on a random bank — strategic objective
+      const fordY  = Math.random() > 0.5 ? 300 : 900;
+      const bankDir = Math.random() > 0.5 ? 1 : -1;
       this.heart = {
-        x: MAP_W / 2 + (Math.random() - 0.5) * 200,
-        y: MAP_H / 2 + (Math.random() - 0.5) * 200,
+        x: RIVER_CX + bankDir * (RIVER_W / 2 + 70 + Math.random() * 100),
+        y: fordY + (Math.random() - 0.5) * 60,
       };
     }
     if (this.heart) {
@@ -678,8 +692,8 @@ io.on('connection', (socket) => {
 
     // Assign spawns by team so same-team players are always on the same bank
     const teamSpawns = {
-      0: [{ x: 280, y: 280 }, { x: 280, y: MAP_H - 280 }],
-      1: [{ x: MAP_W - 280, y: MAP_H - 280 }, { x: MAP_W - 280, y: 280 }],
+      0: [{ x: 260, y: 400 }, { x: 260, y: MAP_H - 400 }],
+      1: [{ x: MAP_W - 260, y: MAP_H - 400 }, { x: MAP_W - 260, y: 400 }],
     };
     const teamIdx = { 0: 0, 1: 0 };
     for (const p of room.players.values()) {
