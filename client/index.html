@@ -17,7 +17,7 @@
     #canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
 
     /* ─ Overlay screens ─ */
-    #overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    #overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10; }
     .screen { display: none; flex-direction: column; align-items: center; gap: 14px; padding: 20px; }
     .screen.active { display: flex; }
 
@@ -92,7 +92,7 @@
 
     /* ─ In-game HUD ─ */
     #hud { position: absolute; top: 0; left: 0; right: 0; display: none;
-           padding: 8px 14px; pointer-events: none; }
+           padding: 8px 14px; pointer-events: none; z-index: 10; }
     #hud-hp   { font-size: 22px; }
     #hud-team { font-size: 13px; color: #ccc; margin-top: 2px; }
 
