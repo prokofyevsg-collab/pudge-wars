@@ -138,10 +138,20 @@ const OBSTACLES = [
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function dist(ax, ay, bx, by) { return Math.sqrt((ax - bx) ** 2 + (ay - by) ** 2); }
 
-function circleVsRect(cx, cy, r, rx, ry, rw, rh) {
-  const nearX = clamp(cx, rx - rw / 2, rx + rw / 2);
-  const nearY = clamp(cy, ry - rh / 2, ry + rh / 2);
-  return dist(cx, cy, nearX, nearY) < r;
+// Transform world point into obstacle's local (un-rotated) space
+function toLocal(px, py, ox, oy, angle) {
+  const dx = px - ox, dy = py - oy;
+  if (!angle) return [dx, dy];
+  const rad = -angle * Math.PI / 180;
+  const c = Math.cos(rad), s = Math.sin(rad);
+  return [dx * c - dy * s, dx * s + dy * c];
+}
+
+function circleVsRect(cx, cy, r, rx, ry, rw, rh, angle = 0) {
+  const [lx, ly] = toLocal(cx, cy, rx, ry, angle);
+  const nearX = clamp(lx, -rw / 2, rw / 2);
+  const nearY = clamp(ly, -rh / 2, rh / 2);
+  return dist(lx, ly, nearX, nearY) < r;
 }
 
 function resolveWater(p, r) {
@@ -157,22 +167,41 @@ function resolveWater(p, r) {
 
 function resolveObstacleCircle(p, r) {
   for (const o of OBSTACLES) {
-    if (!circleVsRect(p.x, p.y, r, o.x, o.y, o.w, o.h)) continue;
-    // Push out on nearest axis
-    const overlapLeft = p.x - (o.x - o.w / 2 - r);
-    const overlapRight = (o.x + o.w / 2 + r) - p.x;
-    const overlapTop = p.y - (o.y - o.h / 2 - r);
-    const overlapBottom = (o.y + o.h / 2 + r) - p.y;
+    const angle = o.r || 0;
+    if (!circleVsRect(p.x, p.y, r, o.x, o.y, o.w, o.h, angle)) continue;
+    // Work in obstacle's local space
+    const [lx, ly] = toLocal(p.x, p.y, o.x, o.y, angle);
+    const overlapLeft   = lx - (-o.w / 2 - r);
+    const overlapRight  = ( o.w / 2 + r) - lx;
+    const overlapTop    = ly - (-o.h / 2 - r);
+    const overlapBottom = ( o.h / 2 + r) - ly;
     const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
-    if (minOverlap === overlapLeft) p.x -= overlapLeft;
-    else if (minOverlap === overlapRight) p.x += overlapRight;
-    else if (minOverlap === overlapTop) p.y -= overlapTop;
-    else p.y += overlapBottom;
+    let pushLx = 0, pushLy = 0;
+    if (minOverlap === overlapLeft)   pushLx = -overlapLeft;
+    else if (minOverlap === overlapRight)  pushLx =  overlapRight;
+    else if (minOverlap === overlapTop)    pushLy = -overlapTop;
+    else                                   pushLy =  overlapBottom;
+    // Rotate push vector back to world space
+    if (angle) {
+      const rad = angle * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      p.x += pushLx * c - pushLy * s;
+      p.y += pushLx * s + pushLy * c;
+    } else {
+      p.x += pushLx;
+      p.y += pushLy;
+    }
   }
 }
 
-function segmentHitsRect(x1, y1, x2, y2, rx, ry, rw, rh) {
-  // Simple AABB vs segment check
+function segmentHitsRect(x1, y1, x2, y2, rx, ry, rw, rh, angle = 0) {
+  if (angle) {
+    // Transform segment into obstacle local space, then do AABB check
+    const [lx1, ly1] = toLocal(x1, y1, rx, ry, angle);
+    const [lx2, ly2] = toLocal(x2, y2, rx, ry, angle);
+    return segmentHitsRect(lx1, ly1, lx2, ly2, 0, 0, rw, rh, 0);
+  }
+  // AABB vs segment check
   const left = rx - rw / 2, right = rx + rw / 2;
   const top = ry - rh / 2, bottom = ry + rh / 2;
   if (x2 >= left && x2 <= right && y2 >= top && y2 <= bottom) return true;
@@ -341,7 +370,7 @@ class GameRoom {
         // Hit obstacle
         let hitObstacle = false;
         for (const o of OBSTACLES) {
-          if (segmentHitsRect(prevX, prevY, hook.x, hook.y, o.x, o.y, o.w, o.h)) {
+          if (segmentHitsRect(prevX, prevY, hook.x, hook.y, o.x, o.y, o.w, o.h, o.r || 0)) {
             hitObstacle = true;
             break;
           }

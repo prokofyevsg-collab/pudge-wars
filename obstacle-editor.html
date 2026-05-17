@@ -62,6 +62,13 @@ button.danger  { background: #922b21; border-color: #7b241c; color: #fff; }
 .zone .h.s  { bottom:-5px; left:50%; transform:translateX(-50%); cursor:ns-resize; }
 .zone .h.sw { bottom:-5px; left:-5px; cursor:nesw-resize; }
 .zone .h.w  { top:50%; left:-5px; transform:translateY(-50%); cursor:ew-resize; }
+.zone .h.rot {
+  top:-26px; left:50%; transform:translateX(-50%);
+  width:16px; height:16px; border-radius:50%;
+  background:#ffcc00; border-color:#aa8800;
+  cursor:grab; font-size:12px; color:#333;
+  display:flex; align-items:center; justify-content:center;
+}
 
 .zone .del-btn {
   position: absolute; top: -10px; right: -10px;
@@ -89,6 +96,7 @@ button.danger  { background: #922b21; border-color: #7b241c; color: #fff; }
 <div id="toolbar">
   <h2>⚓ Obstacle Editor</h2>
   <button onclick="addZone()">＋ Добавить зону</button>
+  <button onclick="addWall()">— Стена</button>
   <button onclick="toggleIsland()">🏝 Остров (toggle)</button>
   <button class="primary" onclick="exportCode()">📋 Экспорт кода</button>
   <button class="danger" onclick="deleteSelected()">✕ Удалить выбранную</button>
@@ -209,19 +217,28 @@ function createZoneEl(z, i) {
     el.appendChild(h);
   });
 
+  // Rotation handle
+  const rh = document.createElement('div');
+  rh.className = 'h rot';
+  rh.textContent = '↻';
+  makeRotatable(rh, el, i);
+  el.appendChild(rh);
+
   makeDraggable(el, i);
   container.appendChild(el);
 }
 
 function positionEl(el, z) {
-  el.style.left   = (z.x - z.w / 2) * scaleX + 'px';
-  el.style.top    = (z.y - z.h / 2) * scaleY + 'px';
-  el.style.width  = z.w * scaleX + 'px';
-  el.style.height = z.h * scaleY + 'px';
+  el.style.left      = (z.x - z.w / 2) * scaleX + 'px';
+  el.style.top       = (z.y - z.h / 2) * scaleY + 'px';
+  el.style.width     = z.w * scaleX + 'px';
+  el.style.height    = z.h * scaleY + 'px';
+  el.style.transform = `rotate(${z.r || 0}deg)`;
 }
 
 function updateLabel(lbl, z, i) {
-  lbl.textContent = `#${i}  x:${z.x} y:${z.y}\nw:${z.w} h:${z.h}${z.island ? ' 🏝' : ''}`;
+  const r = z.r ? ` r:${z.r}°` : '';
+  lbl.textContent = `#${i}  x:${z.x} y:${z.y}\nw:${z.w} h:${z.h}${r}${z.island ? ' 🏝' : ''}`;
 }
 
 function syncLabel(i) {
@@ -288,6 +305,30 @@ function makeResizable(handle, el, i, dir) {
   });
 }
 
+// ── Rotate ────────────────────────────────────────────────────────────────────
+function makeRotatable(handle, el, i) {
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault(); e.stopPropagation();
+    selectZone(i);
+    const imgRect = img.getBoundingClientRect();
+    const onMove = e => {
+      const cx = imgRect.left + zones[i].x * scaleX;
+      const cy = imgRect.top  + zones[i].y * scaleY;
+      const angle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI + 90;
+      zones[i].r = Math.round(angle / 5) * 5;
+      positionEl(el, zones[i]);
+      syncLabel(i);
+      updateInfo();
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
 // ── Выделение ─────────────────────────────────────────────────────────────────
 function selectZone(i) {
   selectedIdx = i;
@@ -303,13 +344,20 @@ function updateInfo() {
     el.textContent = 'Выбрано: нет';
   } else {
     const z = zones[selectedIdx];
-    el.textContent = `#${selectedIdx}: x=${z.x} y=${z.y}  w=${z.w} h=${z.h}${z.island ? ' 🏝' : ''}`;
+    const r = z.r ? ` r=${z.r}°` : '';
+    el.textContent = `#${selectedIdx}: x=${z.x} y=${z.y}  w=${z.w} h=${z.h}${r}${z.island ? ' 🏝' : ''}`;
   }
 }
 
 // ── Toolbar actions ───────────────────────────────────────────────────────────
 function addZone() {
   zones.push({ x: 1000, y: 600, w: 140, h: 120 });
+  renderAll();
+  selectZone(zones.length - 1);
+}
+
+function addWall() {
+  zones.push({ x: 1000, y: 600, w: 220, h: 18 });
   renderAll();
   selectZone(zones.length - 1);
 }
@@ -332,7 +380,8 @@ function toggleIsland() {
 function exportCode() {
   const lines = zones.map((z, i) => {
     const island = z.island ? ', island: true' : '';
-    return `  { x: ${String(z.x).padStart(4)},  y: ${String(z.y).padStart(4)},  w: ${String(z.w).padStart(3)}, h: ${String(z.h).padStart(3)}${island} },`;
+    const rot    = z.r     ? `, r: ${z.r}`     : '';
+    return `  { x: ${String(z.x).padStart(4)},  y: ${String(z.y).padStart(4)},  w: ${String(z.w).padStart(3)}, h: ${String(z.h).padStart(3)}${rot}${island} },`;
   });
   const code = `const OBSTACLES = [\n${lines.join('\n')}\n];`;
   document.getElementById('output').textContent = code;
