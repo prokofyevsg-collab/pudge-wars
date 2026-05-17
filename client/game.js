@@ -321,6 +321,31 @@ function buildMap(obstacles) {
   ground.position.set(mw / 2, 0, mh / 2);
   mapGroup.add(ground);
 
+  // ── 3D rocks over each obstacle ───────────────────────────────────────────
+  const ROCK_SEQ = ['rock-formation', 'rock-pile', 'rock-a', 'rock-b', 'rock-c'];
+  obstacles.forEach((o, i) => {
+    const wx = o.x * S, wz = o.y * S;
+    const name = o.island ? 'rock-formation' : ROCK_SEQ[i % ROCK_SEQ.length];
+    placeNature(name, wx, wz, o.island ? 1.2 : 0.9);
+  });
+
+  // ── Team base castles (crystal wells) ────────────────────────────────────
+  function placeCastle(sx, sy, ry) {
+    const base = natureModels['crystal-well'];
+    if (!base) return;
+    const m = base.clone(true);
+    const box = new THREE.Box3().setFromObject(m);
+    const modelH = box.getSize(new THREE.Vector3()).y || 1;
+    const s = 1.3 / modelH;
+    m.scale.setScalar(s);
+    m.rotation.y = ry;
+    const box2 = new THREE.Box3().setFromObject(m);
+    m.position.set(sx * S, -box2.min.y + 0.01, sy * S);
+    mapGroup.add(m);
+  }
+  placeCastle(160,  516, 0);        // left base
+  placeCastle(1840, 516, Math.PI);  // right base
+
   scene.add(mapGroup);
 
   // ── Lighting — bright uniform so characters are clearly visible ───────────
