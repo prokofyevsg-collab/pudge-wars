@@ -458,7 +458,7 @@ function getOrCreateChar(id, team) {
     model.scale.set(1, 1, 1); // reset before measuring (pool reuse fix)
     const box  = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
-    const s    = size.y > 0.001 ? 1.088 / size.y : 0.553; // 15% smaller than before
+    const s    = size.y > 0.001 ? 0.544 / size.y : 0.276; // 2x smaller
     model.scale.setScalar(s);
     const box2 = new THREE.Box3().setFromObject(model);
     model.position.y = -box2.min.y;
