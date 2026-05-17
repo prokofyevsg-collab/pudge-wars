@@ -37,7 +37,7 @@ try { screen.orientation.lock('landscape'); } catch (_) {}
 
 // ── Renderer ──────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('canvas');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -45,7 +45,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 // ── Scene ─────────────────────────────────────────────────────────────────────
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a3d10);
+// transparent — CSS #map-bg div shows through the canvas
 // No fog — isometric view shows the whole scene from far away; fog kills visibility
 
 // ── Camera ────────────────────────────────────────────────────────────────────
@@ -122,22 +122,7 @@ function addTorch(x, z) {
   torches.push(l);
 }
 
-// ── Map background texture ────────────────────────────────────────────────────
-let mapBgTexture = null;
-new THREE.TextureLoader().load('/assets/map-bg.png', tex => {
-  const img = tex.image;
-  const canvas = document.createElement('canvas');
-  canvas.width  = img.naturalWidth  || img.width;
-  canvas.height = img.naturalHeight || img.height;
-  const ctx = canvas.getContext('2d');
-  ctx.filter = 'contrast(140%) saturate(120%)';
-  ctx.drawImage(img, 0, 0);
-  mapBgTexture = new THREE.CanvasTexture(canvas);
-  mapBgTexture.wrapS = mapBgTexture.wrapT = THREE.ClampToEdgeWrapping;
-  mapBgTexture.repeat.set(3, 3);
-  mapBgTexture.offset.set(-1, -1);
-  _onAsset();
-}, undefined, () => _onAsset());
+// Map background is a CSS div — no Three.js texture needed
 
 // ── GLB loader + model pool ───────────────────────────────────────────────────
 const gltfLoader = new GLTFLoader();
@@ -223,7 +208,7 @@ function onClipReady(name, clip) {
 
 // ── Asset load tracking ───────────────────────────────────────────────────────
 let _assetsLoaded = 0;
-const _assetsTotal = 31; // 4 anim + run + hook + die + 12 nature + 3 water gltf + 8 new map + 1 map-bg
+const _assetsTotal = 30; // 4 anim + run + hook + die + 12 nature + 3 water gltf + 8 new map
 
 const _LOAD_TIPS = [
   'Хукай первым — побеждай последним',
@@ -322,14 +307,15 @@ function buildMap(obstacles) {
   mapGroup = new THREE.Group();
   const mw = MAP_W * S, mh = MAP_H * S;
 
-  // ── Ground — 3× extended plane so edge pixels clamp to cover full screen ──
-  const groundMat = mapBgTexture
-    ? new THREE.MeshBasicMaterial({ map: mapBgTexture })
-    : new THREE.MeshBasicMaterial({ color: 0x4a8820 });
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(mw * 3, mh * 3), groundMat);
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.set(mw / 2, 0, mh / 2);
-  mapGroup.add(ground);
+  // Invisible shadow-receiver so characters cast shadows on the CSS background
+  const shadowPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(mw * 3, mh * 3),
+    new THREE.ShadowMaterial({ opacity: 0.22 })
+  );
+  shadowPlane.rotation.x = -Math.PI / 2;
+  shadowPlane.position.set(mw / 2, 0, mh / 2);
+  shadowPlane.receiveShadow = true;
+  mapGroup.add(shadowPlane);
 
   scene.add(mapGroup);
 
