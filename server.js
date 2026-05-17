@@ -103,30 +103,9 @@ const SPAWNS = [
 const RIVER_CX = MAP_W / 2;   // 1000
 const RIVER_W  = 200;          // total river width (narrower for gameplay)
 
-// River blocks movement in 3 sections; ford gaps at y≈240-360 (top) and y≈840-960 (bottom)
-const WATER_ZONES = [
-  { x: RIVER_CX, y: 120,  w: RIVER_W, h: 240 },   // top section    y:0-240
-  { x: RIVER_CX, y: 600,  w: RIVER_W, h: 480 },   // middle section y:360-840
-  { x: RIVER_CX, y: 1080, w: RIVER_W, h: 240 },   // bottom section y:960-1200
-];
-
-// Strategic obstacles — rocks for cover near fords + center island
-const OBSTACLES = [
-  // Rocks flanking the upper ford (y≈300) — hook angles and cover
-  { x: 820,  y: 270, w: 90, h: 90 },
-  { x: 1180, y: 330, w: 90, h: 90 },
-  // Rocks flanking the lower ford (y≈900)
-  { x: 820,  y: 930, w: 90, h: 90 },
-  { x: 1180, y: 870, w: 90, h: 90 },
-  // Mid-field cover — left half (ambush spots)
-  { x: 560,  y: 390, w: 90, h: 90 },
-  { x: 480,  y: 760, w: 90, h: 90 },
-  // Mid-field cover — right half (mirrored)
-  { x: 1440, y: 390, w: 90, h: 90 },
-  { x: 1520, y: 760, w: 90, h: 90 },
-  // Center island — blocks hooks and walking, creates tactical geometry
-  { x: 1000, y: 600, w: 130, h: 160, island: true },
-];
+// Clean slate — no water or obstacle physics
+const WATER_ZONES = [];
+const OBSTACLES    = [];
 
 // --- Helpers ---
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }

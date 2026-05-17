@@ -125,7 +125,17 @@ function addTorch(x, z) {
 // ── Map background texture ────────────────────────────────────────────────────
 let mapBgTexture = null;
 new THREE.TextureLoader().load('/assets/map-bg.png', tex => {
-  mapBgTexture = tex;
+  const img = tex.image;
+  const canvas = document.createElement('canvas');
+  canvas.width  = img.naturalWidth  || img.width;
+  canvas.height = img.naturalHeight || img.height;
+  const ctx = canvas.getContext('2d');
+  ctx.filter = 'contrast(140%) saturate(120%)';
+  ctx.drawImage(img, 0, 0);
+  mapBgTexture = new THREE.CanvasTexture(canvas);
+  mapBgTexture.wrapS = mapBgTexture.wrapT = THREE.ClampToEdgeWrapping;
+  mapBgTexture.repeat.set(3, 3);
+  mapBgTexture.offset.set(-1, -1);
   _onAsset();
 }, undefined, () => _onAsset());
 
@@ -312,43 +322,17 @@ function buildMap(obstacles) {
   mapGroup = new THREE.Group();
   const mw = MAP_W * S, mh = MAP_H * S;
 
-  // ── Ground — map background image texture ────────────────────────────────
+  // ── Ground — 3× extended plane so edge pixels clamp to cover full screen ──
   const groundMat = mapBgTexture
     ? new THREE.MeshBasicMaterial({ map: mapBgTexture })
     : new THREE.MeshBasicMaterial({ color: 0x4a8820 });
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(mw, mh), groundMat);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(mw * 3, mh * 3), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(mw / 2, 0, mh / 2);
   mapGroup.add(ground);
 
-  // ── 3D rocks over each obstacle ───────────────────────────────────────────
-  const ROCK_SEQ = ['rock-formation', 'rock-pile', 'rock-a', 'rock-b', 'rock-c'];
-  obstacles.forEach((o, i) => {
-    const wx = o.x * S, wz = o.y * S;
-    const name = o.island ? 'rock-formation' : ROCK_SEQ[i % ROCK_SEQ.length];
-    placeNature(name, wx, wz, o.island ? 1.2 : 0.9);
-  });
-
-  // ── Team base castles (crystal wells) ────────────────────────────────────
-  function placeCastle(sx, sy, ry) {
-    const base = natureModels['crystal-well'];
-    if (!base) return;
-    const m = base.clone(true);
-    const box = new THREE.Box3().setFromObject(m);
-    const modelH = box.getSize(new THREE.Vector3()).y || 1;
-    const s = 1.3 / modelH;
-    m.scale.setScalar(s);
-    m.rotation.y = ry;
-    const box2 = new THREE.Box3().setFromObject(m);
-    m.position.set(sx * S, -box2.min.y + 0.01, sy * S);
-    mapGroup.add(m);
-  }
-  placeCastle(160,  516, 0);        // left base
-  placeCastle(1840, 516, Math.PI);  // right base
-
   scene.add(mapGroup);
 
-  // ── Lighting — bright uniform so characters are clearly visible ───────────
   torches.length = 0;
   const fill = new THREE.PointLight(0xffffff, 2.5, mw * 3);
   fill.position.set(mw / 2, 6, mh / 2);
@@ -557,15 +541,9 @@ function makeHeartGroup() {
 }
 
 function updateHeartItem(d) {
-  if (d.heart) {
-    if (!heartGroup) { heartGroup = makeHeartGroup(); scene.add(heartGroup); }
-    if (!heartRenderPos) heartRenderPos = { x: d.heart.x, y: d.heart.y }; // snap on first appear
-    sHeart = d.heart;
-  } else {
-    if (heartGroup) { scene.remove(heartGroup); heartGroup = null; }
-    sHeart = null;
-    heartRenderPos = null;
-  }
+  // Heart 3D object hidden — clean slate
+  if (!d.heart) { sHeart = null; heartRenderPos = null; }
+  else { sHeart = d.heart; }
 }
 
 function showHeartPickupEffect() {
