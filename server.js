@@ -106,7 +106,7 @@ const RIVER_W  = 200;          // total river width (narrower for gameplay)
 // No water physics — river is visual only
 const WATER_ZONES = [];
 
-// Obstacles calibrated via visual editor (v1.48)
+// Obstacles calibrated via visual editor (v1.52)
 const OBSTACLES = [
   { x:  741,  y:  244,  w:  84, h:  98 },
   { x: 1291,  y:  265,  w:  59, h:  89 },
@@ -120,7 +120,7 @@ const OBSTACLES = [
   { x:  778,  y:  341,  w:  60, h: 100 },
   { x:  401,  y:  500,  w:  32, h:  78 },
   { x:  721,  y:  896,  w:  61, h: 100 },
-  { x:  751,  y:   48,  w:  48, h:  67 },
+  { x:  776,  y:   91,  w:  48, h:  67 },
   { x: 1298,  y:  887,  w:  55, h:  78 },
   { x: 1560,  y:  715,  w:  57, h:  76 },
   { x: 1568,  y:  789,  w:  59, h:  71 },
@@ -130,8 +130,8 @@ const OBSTACLES = [
   { x: 1252,  y:  301,  w:  30, h:  69 },
   { x: 1799,  y:   32,  w:  62, h:  69 },
   { x: 1273,  y: 1169,  w:  50, h:  66 },
-  { x: 1909,  y:  596,  w:  72, h:  86 },
-  { x:   92,  y:  602,  w:  69, h:  87 },
+  { x: 1823,  y:  593,  w:  72, h:  86 },
+  { x:  177,  y:  599,  w:  69, h:  87 },
 ];
 
 // --- Helpers ---

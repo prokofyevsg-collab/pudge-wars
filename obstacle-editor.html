@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Obstacle Editor — Pudge Wars</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #1a1a1a; font-family: monospace; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+
+#toolbar {
+  width: 100%; background: #222; border-bottom: 1px solid #444;
+  padding: 8px 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 100;
+}
+#toolbar h2 { color: #e74c3c; font-size: 14px; margin-right: 6px; }
+button {
+  background: #383838; color: #ddd; border: 1px solid #555;
+  padding: 5px 13px; border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+button:hover { background: #555; color: #fff; }
+button.primary { background: #27ae60; border-color: #1e8449; color: #fff; }
+button.danger  { background: #922b21; border-color: #7b241c; color: #fff; }
+#hint { color: #777; font-size: 12px; margin-left: auto; }
+#selected-info { color: #f0b429; font-size: 12px; min-width: 240px; }
+
+#container {
+  position: relative; display: inline-block;
+  margin: 14px 0; cursor: crosshair;
+}
+#map-img { display: block; max-width: 98vw; }
+
+/* Zone rectangle */
+.zone {
+  position: absolute;
+  border: 2px solid rgba(255,80,0,0.9);
+  background: rgba(255,60,0,0.30);
+  cursor: move;
+}
+.zone:hover, .zone.selected {
+  border-color: #ffe000;
+  background: rgba(255,220,0,0.25);
+  z-index: 10;
+}
+.zone .lbl {
+  position: absolute; top: 2px; left: 3px;
+  color: #fff; font-size: 10px; line-height: 1.2;
+  text-shadow: 0 0 3px #000, 1px 1px 0 #000;
+  pointer-events: none; white-space: nowrap;
+}
+
+/* Resize handles — 8 directions */
+.zone .h {
+  position: absolute; width: 10px; height: 10px;
+  background: #fff; border: 1px solid #666; border-radius: 2px;
+  z-index: 5;
+}
+.zone .h.nw { top:-5px; left:-5px; cursor:nwse-resize; }
+.zone .h.n  { top:-5px; left:50%; transform:translateX(-50%); cursor:ns-resize; }
+.zone .h.ne { top:-5px; right:-5px; cursor:nesw-resize; }
+.zone .h.e  { top:50%; right:-5px; transform:translateY(-50%); cursor:ew-resize; }
+.zone .h.se { bottom:-5px; right:-5px; cursor:nwse-resize; }
+.zone .h.s  { bottom:-5px; left:50%; transform:translateX(-50%); cursor:ns-resize; }
+.zone .h.sw { bottom:-5px; left:-5px; cursor:nesw-resize; }
+.zone .h.w  { top:50%; left:-5px; transform:translateY(-50%); cursor:ew-resize; }
+
+.zone .del-btn {
+  position: absolute; top: -10px; right: -10px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #e74c3c; color: #fff; border: none;
+  cursor: pointer; font-size: 13px; font-weight: bold;
+  display: none; align-items: center; justify-content: center;
+  line-height: 1;
+}
+.zone:hover .del-btn, .zone.selected .del-btn { display: flex; }
+
+/* Output code */
+#output-wrap { width: 98vw; margin-bottom: 18px; display: none; }
+#output-wrap h3 { color: #27ae60; font-size: 13px; margin-bottom: 6px; }
+#output {
+  width: 100%; background: #111; color: #7fff7f; font-size: 12px;
+  padding: 10px; border: 1px solid #333; border-radius: 4px;
+  white-space: pre; overflow-x: auto;
+}
+#copy-btn { margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h2>⚓ Obstacle Editor</h2>
+  <button onclick="addZone()">＋ Добавить зону</button>
+  <button onclick="toggleIsland()">🏝 Остров (toggle)</button>
+  <button class="primary" onclick="exportCode()">📋 Экспорт кода</button>
+  <button class="danger" onclick="deleteSelected()">✕ Удалить выбранную</button>
+  <label style="background:#555;color:#ddd;border:1px solid #777;padding:5px 13px;border-radius:4px;cursor:pointer;font-size:13px;">
+    🖼 Загрузить скриншот <input type="file" accept="image/*" style="display:none" onchange="loadBg(this)">
+  </label>
+  <div id="selected-info">Выбрано: нет</div>
+  <div id="hint">ЛКМ — выбрать/перетащить · Углы — ресайз · Двойной клик на фоне — новая зона</div>
+</div>
+
+<div id="container">
+  <img id="map-img" src="assets/map-bg.png" ondragstart="return false">
+</div>
+
+<div id="output-wrap">
+  <h3>Скопируй в server.js → const OBSTACLES = [...]</h3>
+  <pre id="output"></pre>
+  <button id="copy-btn" class="primary" onclick="copyCode()">📋 Копировать</button>
+</div>
+
+<script>
+// ── Начальные зоны (из текущего server.js v1.47) ─────────────────────────────
+let zones = [
+  { x:  741,  y:  244,  w:  84, h:  98 },
+  { x: 1291,  y:  265,  w:  59, h:  89 },
+  { x:  445,  y:  452,  w:  72, h: 148 },
+  { x: 1569,  y:  421,  w:  70, h:  85 },
+  { x: 1001,  y:  588,  w: 126, h: 203, island: true },
+  { x:  433,  y:  727,  w:  76, h: 186 },
+  { x: 1588,  y:  672,  w:  54, h:  70 },
+  { x:  757,  y:  797,  w:  67, h: 103 },
+  { x: 1254,  y:  805,  w:  61, h: 115 },
+  { x:  778,  y:  341,  w:  60, h: 100 },
+  { x:  401,  y:  500,  w:  32, h:  78 },
+  { x:  721,  y:  896,  w:  61, h: 100 },
+  { x:  776,  y:   91,  w:  48, h:  67 },
+  { x: 1298,  y:  887,  w:  55, h:  78 },
+  { x: 1560,  y:  715,  w:  57, h:  76 },
+  { x: 1568,  y:  789,  w:  59, h:  71 },
+  { x: 1590,  y:  503,  w:  60, h:  86 },
+  { x: 1556,  y:  484,  w:  30, h:  53 },
+  { x: 1246,  y:  367,  w:  51, h: 100 },
+  { x: 1252,  y:  301,  w:  30, h:  69 },
+  { x: 1799,  y:   32,  w:  62, h:  69 },
+  { x: 1273,  y: 1169,  w:  50, h:  66 },
+  { x: 1823,  y:  593,  w:  72, h:  86 },
+  { x:  177,  y:  599,  w:  69, h:  87 },
+];
+
+const MAP_W = 2000, MAP_H = 1200;
+let scaleX = 1, scaleY = 1;
+let selectedIdx = -1;
+const container = document.getElementById('container');
+const img       = document.getElementById('map-img');
+
+// ── Инициализация ─────────────────────────────────────────────────────────────
+img.onload = () => { updateScale(); renderAll(); };
+if (img.complete) { updateScale(); renderAll(); }
+
+window.addEventListener('resize', () => { updateScale(); renderAll(); });
+
+// Двойной клик на фоне → новая зона
+container.addEventListener('dblclick', e => {
+  if (e.target !== img) return;
+  const rect = img.getBoundingClientRect();
+  const px = e.clientX - rect.left, py = e.clientY - rect.top;
+  const sx = Math.round(px / scaleX), sy = Math.round(py / scaleY);
+  zones.push({ x: sx, y: sy, w: 120, h: 100 });
+  renderAll();
+  selectZone(zones.length - 1);
+});
+
+// Клик вне зон → снять выделение
+container.addEventListener('mousedown', e => {
+  if (e.target === img) { selectZone(-1); }
+});
+
+function updateScale() {
+  scaleX = img.offsetWidth  / MAP_W;
+  scaleY = img.offsetHeight / MAP_H;
+}
+
+// ── Рендер ────────────────────────────────────────────────────────────────────
+function renderAll() {
+  container.querySelectorAll('.zone').forEach(el => el.remove());
+  zones.forEach((z, i) => createZoneEl(z, i));
+  updateInfo();
+}
+
+function createZoneEl(z, i) {
+  const el = document.createElement('div');
+  el.className = 'zone' + (z.island ? ' selected-island' : '');
+  if (i === selectedIdx) el.classList.add('selected');
+  positionEl(el, z);
+  if (z.island) el.style.background = 'rgba(0,120,255,0.30)';
+  if (z.island) el.style.borderColor = 'rgba(0,180,255,0.9)';
+
+  // Label
+  const lbl = document.createElement('div');
+  lbl.className = 'lbl';
+  lbl.id = `lbl-${i}`;
+  updateLabel(lbl, z, i);
+  el.appendChild(lbl);
+
+  // Delete button
+  const del = document.createElement('button');
+  del.className = 'del-btn';
+  del.textContent = '✕';
+  del.title = 'Удалить';
+  del.onclick = e => { e.stopPropagation(); zones.splice(i, 1); if (selectedIdx >= zones.length) selectedIdx = -1; renderAll(); };
+  el.appendChild(del);
+
+  // 8 resize handles
+  ['nw','n','ne','e','se','s','sw','w'].forEach(dir => {
+    const h = document.createElement('div');
+    h.className = `h ${dir}`;
+    makeResizable(h, el, i, dir);
+    el.appendChild(h);
+  });
+
+  makeDraggable(el, i);
+  container.appendChild(el);
+}
+
+function positionEl(el, z) {
+  el.style.left   = (z.x - z.w / 2) * scaleX + 'px';
+  el.style.top    = (z.y - z.h / 2) * scaleY + 'px';
+  el.style.width  = z.w * scaleX + 'px';
+  el.style.height = z.h * scaleY + 'px';
+}
+
+function updateLabel(lbl, z, i) {
+  lbl.textContent = `#${i}  x:${z.x} y:${z.y}\nw:${z.w} h:${z.h}${z.island ? ' 🏝' : ''}`;
+}
+
+function syncLabel(i) {
+  const lbl = document.getElementById(`lbl-${i}`);
+  if (lbl) updateLabel(lbl, zones[i], i);
+}
+
+// ── Drag to move ──────────────────────────────────────────────────────────────
+function makeDraggable(el, i) {
+  el.addEventListener('mousedown', e => {
+    if (e.target.classList.contains('h') || e.target.classList.contains('del-btn')) return;
+    e.preventDefault();
+    selectZone(i);
+
+    const startMX = e.clientX, startMY = e.clientY;
+    const startZX = zones[i].x, startZY = zones[i].y;
+
+    const onMove = e => {
+      zones[i].x = Math.round(startZX + (e.clientX - startMX) / scaleX);
+      zones[i].y = Math.round(startZY + (e.clientY - startMY) / scaleY);
+      positionEl(el, zones[i]);
+      syncLabel(i);
+      updateInfo();
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+function makeResizable(handle, el, i, dir) {
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault(); e.stopPropagation();
+    selectZone(i);
+
+    const startMX = e.clientX, startMY = e.clientY;
+    const sz = { x: zones[i].x, y: zones[i].y, w: zones[i].w, h: zones[i].h };
+
+    const onMove = e => {
+      const dx = (e.clientX - startMX) / scaleX;
+      const dy = (e.clientY - startMY) / scaleY;
+      const z = zones[i];
+
+      // Apply delta based on direction
+      if (dir.includes('e')) z.w = Math.max(30, Math.round(sz.w + dx));
+      if (dir.includes('w')) { z.w = Math.max(30, Math.round(sz.w - dx)); z.x = Math.round(sz.x + dx); }
+      if (dir.includes('s')) z.h = Math.max(30, Math.round(sz.h + dy));
+      if (dir.includes('n')) { z.h = Math.max(30, Math.round(sz.h - dy)); z.y = Math.round(sz.y + dy); }
+
+      positionEl(el, z);
+      syncLabel(i);
+      updateInfo();
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+// ── Выделение ─────────────────────────────────────────────────────────────────
+function selectZone(i) {
+  selectedIdx = i;
+  container.querySelectorAll('.zone').forEach((el, idx) => {
+    el.classList.toggle('selected', idx === i);
+  });
+  updateInfo();
+}
+
+function updateInfo() {
+  const el = document.getElementById('selected-info');
+  if (selectedIdx < 0 || selectedIdx >= zones.length) {
+    el.textContent = 'Выбрано: нет';
+  } else {
+    const z = zones[selectedIdx];
+    el.textContent = `#${selectedIdx}: x=${z.x} y=${z.y}  w=${z.w} h=${z.h}${z.island ? ' 🏝' : ''}`;
+  }
+}
+
+// ── Toolbar actions ───────────────────────────────────────────────────────────
+function addZone() {
+  zones.push({ x: 1000, y: 600, w: 140, h: 120 });
+  renderAll();
+  selectZone(zones.length - 1);
+}
+
+function deleteSelected() {
+  if (selectedIdx < 0) return;
+  zones.splice(selectedIdx, 1);
+  selectedIdx = -1;
+  renderAll();
+}
+
+function toggleIsland() {
+  if (selectedIdx < 0) return;
+  zones[selectedIdx].island = !zones[selectedIdx].island;
+  renderAll();
+  selectZone(selectedIdx);
+}
+
+// ── Экспорт ───────────────────────────────────────────────────────────────────
+function exportCode() {
+  const lines = zones.map((z, i) => {
+    const island = z.island ? ', island: true' : '';
+    return `  { x: ${String(z.x).padStart(4)},  y: ${String(z.y).padStart(4)},  w: ${String(z.w).padStart(3)}, h: ${String(z.h).padStart(3)}${island} },`;
+  });
+  const code = `const OBSTACLES = [\n${lines.join('\n')}\n];`;
+  document.getElementById('output').textContent = code;
+  document.getElementById('output-wrap').style.display = 'block';
+  document.getElementById('output-wrap').scrollIntoView({ behavior: 'smooth' });
+}
+
+function loadBg(input) {
+  if (!input.files[0]) return;
+  const url = URL.createObjectURL(input.files[0]);
+  img.src = url;
+}
+
+function copyCode() {
+  const text = document.getElementById('output').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    document.getElementById('copy-btn').textContent = '✔ Скопировано!';
+    setTimeout(() => document.getElementById('copy-btn').textContent = '📋 Копировать', 2000);
+  });
+}
+</script>
+</body>
+</html>
