@@ -84,7 +84,7 @@ app.get('/leaderboard', (_req, res) => {
 const TICK_RATE = 30;
 const MAP_W = 2000;
 const MAP_H = 1200;
-const PLAYER_SPEED = 284;
+const PLAYER_SPEED = 200;
 const HOOK_SPEED = 660;
 const HOOK_RANGE = 700;
 const HOOK_COOLDOWN = 6000;
@@ -103,9 +103,32 @@ const SPAWNS = [
 const RIVER_CX = MAP_W / 2;   // 1000
 const RIVER_W  = 200;          // total river width (narrower for gameplay)
 
-// Clean slate — no water or obstacle physics
+// No water physics — river is visual only
 const WATER_ZONES = [];
-const OBSTACLES    = [];
+
+// Obstacles aligned to rock formations in the background image
+const OBSTACLES = [
+  // Top clusters (flanking top of river)
+  { x: 640,  y: 168,  w: 130, h: 110 },
+  { x: 1360, y: 168,  w: 130, h: 110 },
+  // Upper ford — large rock formations either side of crossing
+  { x: 730,  y: 265,  w: 170, h: 140 },
+  { x: 1270, y: 265,  w: 170, h: 140 },
+  // Mid-upper field rocks
+  { x: 555,  y: 350,  w: 155, h: 135 },
+  { x: 1445, y: 350,  w: 155, h: 135 },
+  // Center river island
+  { x: 1000, y: 590,  w: 210, h: 200, island: true },
+  // Mid-lower field rocks
+  { x: 475,  y: 570,  w: 145, h: 130 },
+  { x: 1525, y: 570,  w: 145, h: 130 },
+  // Lower ford — large rock formations
+  { x: 730,  y: 805,  w: 170, h: 140 },
+  { x: 1270, y: 805,  w: 170, h: 140 },
+  // Bottom clusters
+  { x: 640,  y: 970,  w: 130, h: 110 },
+  { x: 1360, y: 970,  w: 130, h: 110 },
+];
 
 // --- Helpers ---
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
