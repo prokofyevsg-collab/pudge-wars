@@ -106,8 +106,9 @@ const RIVER_W  = 200;          // total river width (narrower for gameplay)
 // No water physics — river is visual only
 const WATER_ZONES = [];
 
-// Obstacles calibrated via visual editor (v1.52)
+// Obstacles: rocks (calibrated v1.53) + river walls (v1.56)
 const OBSTACLES = [
+  // ── Rock formations ──
   { x:  741,  y:  244,  w:  84, h:  98 },
   { x: 1291,  y:  265,  w:  59, h:  89 },
   { x:  445,  y:  452,  w:  72, h: 148 },
@@ -132,6 +133,25 @@ const OBSTACLES = [
   { x: 1273,  y: 1169,  w:  50, h:  66 },
   { x: 1909,  y:  596,  w:  72, h:  86 },
   { x:   92,  y:  602,  w:  69, h:  87 },
+  // ── River walls (block movement, hook passes through) ──
+  { x:  844,  y:   96,  w: 163, h:  30, r:  85, waterWall: true },
+  { x:  837,  y:  236,  w:  72, h:  30, r:  65, waterWall: true },
+  { x:  877,  y:  298,  w:  87, h:  18, r:  45, waterWall: true },
+  { x: 1160,  y:   53,  w:  81, h:  30, r:  90, waterWall: true },
+  { x: 1192,  y:  174,  w:  83, h:  51, r:  90, waterWall: true },
+  { x: 1146,  y:  272,  w:  35, h: 100, r:  40, waterWall: true },
+  { x: 1140,  y:  474,  w: 120, h:  40, r:  50, waterWall: true },
+  { x: 1191,  y:  586,  w:  78, h:  30, r:  95, waterWall: true },
+  { x: 1142,  y:  697,  w: 146, h:  30, r: 125, waterWall: true },
+  { x:  852,  y:  493,  w: 120, h:  30, r: -50, waterWall: true },
+  { x:  855,  y:  699,  w: 120, h:  30, r: 230, waterWall: true },
+  { x:  803,  y:  598,  w:  30, h:  79,         waterWall: true },
+  { x:  864,  y:  912,  w: 120, h:  30, r: 125, waterWall: true },
+  { x:  813,  y: 1057,  w: 120, h:  33, r: -80, waterWall: true },
+  { x:  819,  y: 1163,  w:  52, h:  30, r:  75, waterWall: true },
+  { x: 1142,  y:  924,  w: 120, h:  30, r:  50, waterWall: true },
+  { x: 1163,  y: 1039,  w: 120, h:  30, r: 100, waterWall: true },
+  { x: 1158,  y: 1151,  w:  83, h:  30, r:  80, waterWall: true },
 ];
 
 // --- Helpers ---
@@ -370,6 +390,7 @@ class GameRoom {
         // Hit obstacle
         let hitObstacle = false;
         for (const o of OBSTACLES) {
+          if (o.waterWall) continue;
           if (segmentHitsRect(prevX, prevY, hook.x, hook.y, o.x, o.y, o.w, o.h, o.r || 0)) {
             hitObstacle = true;
             break;
