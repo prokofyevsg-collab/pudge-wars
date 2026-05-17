@@ -108,26 +108,20 @@ const WATER_ZONES = [];
 
 // Obstacles aligned to rock formations in the background image
 const OBSTACLES = [
-  // Top clusters (flanking top of river)
-  { x: 640,  y: 168,  w: 130, h: 110 },
-  { x: 1360, y: 168,  w: 130, h: 110 },
   // Upper ford — large rock formations either side of crossing
-  { x: 730,  y: 265,  w: 170, h: 140 },
-  { x: 1270, y: 265,  w: 170, h: 140 },
+  { x: 720,  y: 300,  w: 155, h: 125 },
+  { x: 1280, y: 300,  w: 155, h: 125 },
   // Mid-upper field rocks
-  { x: 555,  y: 350,  w: 155, h: 135 },
-  { x: 1445, y: 350,  w: 155, h: 135 },
+  { x: 500,  y: 390,  w: 145, h: 120 },
+  { x: 1500, y: 390,  w: 145, h: 120 },
   // Center river island
-  { x: 1000, y: 590,  w: 210, h: 200, island: true },
+  { x: 1000, y: 580,  w: 195, h: 180, island: true },
   // Mid-lower field rocks
-  { x: 475,  y: 570,  w: 145, h: 130 },
-  { x: 1525, y: 570,  w: 145, h: 130 },
+  { x: 440,  y: 565,  w: 135, h: 115 },
+  { x: 1560, y: 565,  w: 135, h: 115 },
   // Lower ford — large rock formations
-  { x: 730,  y: 805,  w: 170, h: 140 },
-  { x: 1270, y: 805,  w: 170, h: 140 },
-  // Bottom clusters
-  { x: 640,  y: 970,  w: 130, h: 110 },
-  { x: 1360, y: 970,  w: 130, h: 110 },
+  { x: 720,  y: 820,  w: 155, h: 125 },
+  { x: 1280, y: 820,  w: 155, h: 125 },
 ];
 
 // --- Helpers ---
