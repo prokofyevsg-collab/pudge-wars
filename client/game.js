@@ -307,7 +307,7 @@ function buildMap(obstacles) {
   mapGroup = new THREE.Group();
   const mw = MAP_W * S, mh = MAP_H * S;
 
-  // Invisible shadow-receiver so characters cast shadows on the CSS background
+  // Shadow receiver
   const shadowPlane = new THREE.Mesh(
     new THREE.PlaneGeometry(mw * 3, mh * 3),
     new THREE.ShadowMaterial({ opacity: 0.22 })
@@ -316,6 +316,15 @@ function buildMap(obstacles) {
   shadowPlane.position.set(mw / 2, 0, mh / 2);
   shadowPlane.receiveShadow = true;
   mapGroup.add(shadowPlane);
+
+  // DEBUG: visible obstacle boxes — remove after calibration
+  const dbgMat = new THREE.MeshBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0.55, depthWrite: false });
+  obstacles.forEach(o => {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(o.w * S, o.h * S), dbgMat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(o.x * S, 0.02, o.y * S);
+    mapGroup.add(mesh);
+  });
 
   scene.add(mapGroup);
 
