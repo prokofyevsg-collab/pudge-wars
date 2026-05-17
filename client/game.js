@@ -124,7 +124,7 @@ function addTorch(x, z) {
 
 // ── Map background texture ────────────────────────────────────────────────────
 let mapBgTexture = null;
-new THREE.TextureLoader().load('/assets/map-bg.jpg', tex => {
+new THREE.TextureLoader().load('/assets/map-bg.png', tex => {
   mapBgTexture = tex;
   _onAsset();
 }, undefined, () => _onAsset());
