@@ -122,6 +122,13 @@ function addTorch(x, z) {
   torches.push(l);
 }
 
+// ── Map background texture ────────────────────────────────────────────────────
+let mapBgTexture = null;
+new THREE.TextureLoader().load('/assets/map-bg.jpg', tex => {
+  mapBgTexture = tex;
+  _onAsset();
+}, undefined, () => _onAsset());
+
 // ── GLB loader + model pool ───────────────────────────────────────────────────
 const gltfLoader = new GLTFLoader();
 
@@ -206,7 +213,7 @@ function onClipReady(name, clip) {
 
 // ── Asset load tracking ───────────────────────────────────────────────────────
 let _assetsLoaded = 0;
-const _assetsTotal = 30; // 4 anim + run + hook + die + 12 nature + 3 water gltf + 8 new map
+const _assetsTotal = 31; // 4 anim + run + hook + die + 12 nature + 3 water gltf + 8 new map + 1 map-bg
 
 const _LOAD_TIPS = [
   'Хукай первым — побеждай последним',
@@ -305,327 +312,22 @@ function buildMap(obstacles) {
   mapGroup = new THREE.Group();
   const mw = MAP_W * S, mh = MAP_H * S;
 
-  // ── River geometry (matches server WATER_ZONES) ───────────────────────────
-  const riverCX = mw / 2;
-  const riverHW = mw * 0.05;           // half-width ≈ 1.0 world units (100 server units)
-  const bankW   = mw * 0.038;          // mud bank strip
-  const leftEnd  = riverCX - riverHW - bankW;
-  const rightSt  = riverCX + riverHW + bankW;
-
-  // Ford gaps (world Z): top ford z=2.4-3.6, bottom ford z=8.4-9.6
-  const fordTZ = mh * 0.25;   // 3.0 — center of top ford
-  const fordBZ = mh * 0.75;   // 9.0 — center of bottom ford
-  const fordHZ = mh * 0.05;   // 0.6 — half-height of ford gap
-
-  // ── Materials ─────────────────────────────────────────────────────────────
-  const T = (color, opts = {}) => new THREE.MeshToonMaterial({ color, gradientMap: toonGrad, ...opts });
-  const mVoid   = T(0x0a1206);
-  const mGrassA = T(0x5ec22e);
-  const mDirt   = T(0xb08848);
-  const mMud    = T(0x8a6638);
-  const mSand   = T(0xc8b47a);
-  const mWater  = T(0x1ac4d8, { transparent: true, opacity: 0.88 });
-  const mDeep   = T(0x0fa0b8, { transparent: true, opacity: 0.92 });
-  const mRipple = new THREE.MeshBasicMaterial({ color: 0x88eeff, transparent: true, opacity: 0.18 });
-  const mBark   = T(0x8a5228);
-  const mLeafA  = T(0x32b818);
-  const mLeafB  = T(0x229010);
-  const mLeafC  = T(0x156008);
-  const mRock   = T(0x8a8a78);
-  const mWall   = T(0x6a6a58);
-  const mIsland = T(0x52b820);   // island grass — slightly brighter
-
-  function flat(x, z, w, d, mat, y = 0, ro = 0) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
-    m.rotation.x = -Math.PI / 2;
-    m.position.set(x, y, z);
-    m.receiveShadow = true;
-    m.renderOrder = ro;
-    mapGroup.add(m);
-  }
-  function box3(x, y, z, w, h, d, mat, sh = true) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-    m.position.set(x, y, z);
-    if (sh) { m.castShadow = true; m.receiveShadow = true; }
-    mapGroup.add(m); return m;
-  }
-
-  // ── Base layer ────────────────────────────────────────────────────────────
-  flat(mw / 2, mh / 2, mw * 2.5, mh * 2.5, mGrassA, -0.015);
-  flat(riverCX, mh / 2, riverHW * 2, mh * 2.5, mWater, -0.010, 3);
-  flat(mw / 2, mh / 2, 600, 600, mVoid, -0.02);
-
-  // ── Grass fields (left and right of river) ────────────────────────────────
-  flat(leftEnd / 2, mh / 2, leftEnd, mh, mGrassA, 0.001, 1);
-  flat(rightSt + (mw - rightSt) / 2, mh / 2, mw - rightSt, mh, mGrassA, 0.001, 1);
-
-  // ── Mud banks (full height — visual continuity) ───────────────────────────
-  flat(riverCX - riverHW - bankW / 2, mh / 2, bankW, mh, mMud,  0.003, 2);
-  flat(riverCX + riverHW + bankW / 2, mh / 2, bankW, mh, mMud,  0.003, 2);
-  flat(riverCX - riverHW - bankW - 0.10, mh / 2, 0.22, mh, mDirt, 0.002, 2);
-  flat(riverCX + riverHW + bankW + 0.10, mh / 2, 0.22, mh, mDirt, 0.002, 2);
-
-  // ── River water — 3 sections with ford gaps ───────────────────────────────
-  // Top section  (y: 0 → 2.4)
-  flat(riverCX, mh * 0.10,  riverHW * 2, mh * 0.20, mWater, 0.005, 3);
-  flat(riverCX, mh * 0.10,  riverHW * 0.6, mh * 0.20, mDeep,  0.006, 4);
-  // Middle section (y: 3.6 → 8.4)
-  flat(riverCX, mh * 0.60,  riverHW * 2, mh * 0.40, mWater, 0.005, 3);
-  flat(riverCX, mh * 0.60,  riverHW * 0.6, mh * 0.40, mDeep,  0.006, 4);
-  // Bottom section (y: 9.6 → 12.0)
-  flat(riverCX, mh * 0.90,  riverHW * 2, mh * 0.20, mWater, 0.005, 3);
-  flat(riverCX, mh * 0.90,  riverHW * 0.6, mh * 0.20, mDeep,  0.006, 4);
-
-  // Ripple lines (only inside water sections, skip fords)
-  for (let i = 0; i < 12; i++) {
-    const wz = mh * (i + 0.5) / 12;
-    const inFordT = Math.abs(wz - fordTZ) < fordHZ * 1.2;
-    const inFordB = Math.abs(wz - fordBZ) < fordHZ * 1.2;
-    if (inFordT || inFordB) continue;
-    flat(riverCX, wz, riverHW * 1.7, 0.08, mRipple, 0.007, 5);
-  }
-
-  // ── Ford crossings — sandy ground + stepping stones ───────────────────────
-  [fordTZ, fordBZ].forEach((fz, fi) => {
-    // Sandy ford ground
-    flat(riverCX, fz, riverHW * 2, fordHZ * 2, mSand, 0.008, 6);
-    flat(riverCX, fz, riverHW * 1.0, fordHZ * 2, mMud,  0.009, 7);
-    // Stepping stones across the ford (3 stones)
-    for (let i = -1; i <= 1; i++) {
-      const sx = riverCX + i * riverHW * 0.55;
-      const sz = fz + (fi % 2 === 0 ? i * 0.10 : -i * 0.10);
-      const stone = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.25, 0.09, 8), mRock);
-      stone.position.set(sx, 0.045, sz);
-      stone.rotation.y = i * 1.1 + fi * 0.7;
-      stone.castShadow = true;
-      mapGroup.add(stone);
-    }
-    // Small rocks at ford edges
-    [-1, 1].forEach(side => {
-      const rx = riverCX + side * (riverHW + bankW * 0.5);
-      const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(0.14, 0), mRock);
-      rk.position.set(rx, 0.09, fz + side * 0.15);
-      rk.rotation.y = rx * 3.1;
-      rk.castShadow = true;
-      mapGroup.add(rk);
-    });
-  });
-
-  // Water lilies — in water sections only (not ford gaps)
-  [
-    [riverCX - riverHW * 0.38, mh * 0.13, 'lily_large'],
-    [riverCX + riverHW * 0.30, mh * 0.55, 'lily_small'],
-    [riverCX - riverHW * 0.25, mh * 0.87, 'lily_large'],
-  ].forEach(([wx, wz, name]) => placeNature(name, wx, wz, 0.22));
-
-  // Canoe drifting in middle section
-  placeNature('canoe', riverCX + riverHW * 0.28, mh * 0.44, 0.48);
-
-  // ── Center island ─────────────────────────────────────────────────────────
-  const islandX = riverCX, islandZ = mh / 2;
-  const islandR = 0.72;
-
-  // Island ground platform
-  const islandBase = new THREE.Mesh(
-    new THREE.CylinderGeometry(islandR, islandR * 0.82, 0.14, 16),
-    mIsland
-  );
-  islandBase.position.set(islandX, 0.07, islandZ);
-  islandBase.castShadow = islandBase.receiveShadow = true;
-  mapGroup.add(islandBase);
-
-  // Island dirt rim
-  const islandRim = new THREE.Mesh(
-    new THREE.CylinderGeometry(islandR * 0.80, islandR * 0.95, 0.06, 16),
-    mMud
-  );
-  islandRim.position.set(islandX, 0.03, islandZ);
-  islandRim.receiveShadow = true;
-  mapGroup.add(islandRim);
-
-  // Rock ring around island
-  for (let i = 0; i < 9; i++) {
-    const angle = (i / 9) * Math.PI * 2;
-    const rx = islandX + Math.cos(angle) * islandR * 0.90;
-    const rz = islandZ + Math.sin(angle) * islandR * 0.90;
-    const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(0.11 + (i % 3) * 0.03, 0), mRock);
-    rk.position.set(rx, 0.11, rz);
-    rk.rotation.y = angle + i * 0.7;
-    rk.castShadow = true;
-    mapGroup.add(rk);
-  }
-
-  // Pine tree on island
-  if (natureModels['stylized-pine']) {
-    placeNature('stylized-pine', islandX, islandZ, 1.5);
-  } else {
-    placeNature('tree', islandX, islandZ, 1.3);
-  }
-
-  // ── Perimeter walls ───────────────────────────────────────────────────────
-  const bH = 0.42, bT = 0.20;
-  box3(mw / 2, bH / 2, -bT / 2,   mw + bT * 2, bH, bT, mWall);
-  box3(mw / 2, bH / 2, mh + bT/2, mw + bT * 2, bH, bT, mWall);
-  box3(-bT / 2, bH / 2, mh / 2,   bT, bH, mh, mWall);
-  box3(mw + bT/2, bH / 2, mh / 2, bT, bH, mh, mWall);
-
-  // ── Trees (border forest) ─────────────────────────────────────────────────
-  const treeVariants = ['tree', 'tree-tall', 'tree-autumn', 'tree-autumn-tall',
-                        'stylized-tree', 'stylized-pine'];
-  function addTree(wx, wz, sc = 1.0) {
-    const vi = Math.abs(Math.round(wx * 31 + wz * 17)) % treeVariants.length;
-    const name = treeVariants[vi];
-    if (natureModels[name]) {
-      placeNature(name, wx, wz, 1.1 * sc, vi);
-      return;
-    }
-    // Procedural fallback
-    const tH2 = 0.70 * sc, tR = 0.085 * sc;
-    const tr = new THREE.Mesh(new THREE.CylinderGeometry(tR * 0.55, tR, tH2, 7), mBark);
-    tr.position.set(wx, tH2 / 2, wz); tr.castShadow = true; mapGroup.add(tr);
-    const br = 0.42 * sc, cH = 0.64 * sc;
-    [
-      { y: tH2 + cH * 0.22, r: br * 1.05, mat: mLeafA },
-      { y: tH2 + cH * 0.58, r: br * 0.72, mat: mLeafB },
-      { y: tH2 + cH * 0.90, r: br * 0.44, mat: mLeafC },
-    ].forEach(({ y, r, mat }) => {
-      const c = new THREE.Mesh(new THREE.ConeGeometry(r, cH * 0.55, 8), mat);
-      c.position.set(wx, y, wz); c.castShadow = true; mapGroup.add(c);
-    });
-    const crown = new THREE.Mesh(new THREE.SphereGeometry(br * 0.40, 7, 5), mLeafB);
-    crown.position.set(wx, tH2 + cH * 1.10, wz);
-    crown.castShadow = true; mapGroup.add(crown);
-  }
-
-  // Left border
-  [
-    [0.06, 0.07, 1.1], [0.20, 0.19, 1.2], [0.09, 0.36, 0.9],
-    [0.28, 0.52, 1.0], [0.07, 0.68, 1.2], [0.23, 0.83, 1.0],
-    [0.13, 0.94, 0.9], [0.31, 0.11, 1.1], [0.04, 0.50, 1.0],
-    [0.26, 0.63, 1.2], [0.11, 0.28, 0.85],[0.33, 0.77, 0.9],
-    [0.38, 0.40, 1.0], [0.18, 0.60, 0.95],[0.35, 0.85, 1.1],
-    [0.08, 0.45, 1.05],[0.30, 0.25, 0.9], [0.22, 0.73, 1.0],
-  ].forEach(([fx, fz, sc]) => addTree(fx * leftEnd, fz * mh, sc));
-
-  // Right border (mirrored)
-  [
-    [0.06, 0.07, 1.1], [0.20, 0.19, 1.2], [0.09, 0.36, 0.9],
-    [0.28, 0.52, 1.0], [0.07, 0.68, 1.2], [0.23, 0.83, 1.0],
-    [0.13, 0.94, 0.9], [0.31, 0.11, 1.1], [0.04, 0.50, 1.0],
-    [0.26, 0.63, 1.2], [0.11, 0.28, 0.85],[0.33, 0.77, 0.9],
-    [0.38, 0.40, 1.0], [0.18, 0.60, 0.95],[0.35, 0.85, 1.1],
-    [0.08, 0.45, 1.05],[0.30, 0.25, 0.9], [0.22, 0.73, 1.0],
-  ].forEach(([fx, fz, sc]) => addTree(mw - fx * (mw - rightSt), fz * mh, sc));
-
-  // Top and bottom wall trees
-  [
-    [0.08, 0.03, 0.85], [0.22, 0.04, 0.95], [0.42, 0.03, 0.80],
-    [0.58, 0.04, 0.90], [0.78, 0.03, 0.85], [0.92, 0.04, 0.90],
-  ].forEach(([fx, fz, sc]) => {
-    const wx = fx * mw;
-    if (wx > leftEnd + 0.5 && wx < rightSt - 0.5) return;
-    addTree(wx, fz * mh, sc);
-    addTree(wx, (1 - fz) * mh, sc);
-  });
-
-  // ── Obstacles from server — rendered as rock formations ───────────────────
-  const rockVariants = ['rock-a', 'rock-b', 'rock-c', 'rock-flat-grass'];
-  obstacles.forEach((o, i) => {
-    if (o.island) return; // island is rendered above
-
-    const cx = o.x * S, cz = o.y * S;
-    const sc = Math.min(o.w, o.h) * S * 0.90;
-
-    // Use rock-formation / rock-pile new assets if loaded, else kenney rocks
-    const newRockName = (i % 2 === 0) ? 'rock-formation' : 'rock-pile';
-    if (natureModels[newRockName]) {
-      placeNature(newRockName, cx, cz, sc * 1.2);
-    } else {
-      const rname = rockVariants[i % rockVariants.length];
-      if (natureModels[rname]) {
-        placeNature(rname, cx, cz, sc);
-      } else {
-        const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(sc * 0.45, 0), mRock);
-        rk.position.set(cx, sc * 0.18, cz);
-        rk.rotation.y = cx * 2.3;
-        rk.castShadow = true;
-        mapGroup.add(rk);
-      }
-    }
-    // Small shadow disc
-    const sh = new THREE.Mesh(new THREE.CircleGeometry(sc * 0.5, 10),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }));
-    sh.rotation.x = -Math.PI / 2;
-    sh.position.set(cx, 0.01, cz);
-    sh.renderOrder = 2;
-    mapGroup.add(sh);
-  });
-
-  // ── Extra cover: fallen logs (visual only, mid-field ambush feel) ─────────
-  [
-    [0.62, 0.33], [0.62, 0.67],   // left side, near ford exits
-    [0.38, 0.33], [0.38, 0.67],   // right side
-  ].forEach(([fx, fz]) => {
-    const wx = fx * mw, wz = fz * mh;
-    if (natureModels['fallen-log']) {
-      placeNature('fallen-log', wx, wz, 0.55);
-    }
-  });
-
-  // ── Grass tufts — hiding spots near fords ────────────────────────────────
-  [
-    [0.40, 0.22], [0.42, 0.77],   // left bank near fords
-    [0.60, 0.22], [0.58, 0.77],   // right bank near fords
-    [0.30, 0.50], [0.70, 0.50],   // mid-field
-  ].forEach(([fx, fz]) => {
-    const wx = fx * mw, wz = fz * mh;
-    if (natureModels['grass-tuft']) {
-      placeNature('grass-tuft', wx, wz, 0.40);
-    }
-    if (natureModels['patch-grass']) {
-      placeNature('patch-grass', wx + 0.18, wz - 0.10, 0.28);
-    }
-  });
-
-  // ── Crystal wells at base areas (spawn zones) ────────────────────────────
-  [
-    [0.10, 0.38],   // team 0 base top
-    [0.10, 0.62],   // team 0 base bottom
-    [0.90, 0.38],   // team 1 base top
-    [0.90, 0.62],   // team 1 base bottom
-  ].forEach(([fx, fz]) => {
-    const wx = fx * mw, wz = fz * mh;
-    if (natureModels['crystal-well']) {
-      placeNature('crystal-well', wx, wz, 0.60);
-    }
-  });
+  // ── Ground — map background image texture ────────────────────────────────
+  const groundMat = mapBgTexture
+    ? new THREE.MeshBasicMaterial({ map: mapBgTexture })
+    : new THREE.MeshBasicMaterial({ color: 0x4a8820 });
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(mw, mh), groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(mw / 2, 0, mh / 2);
+  mapGroup.add(ground);
 
   scene.add(mapGroup);
 
-  // ── Lighting ──────────────────────────────────────────────────────────────
+  // ── Lighting — bright uniform so characters are clearly visible ───────────
   torches.length = 0;
-
-  // River glow
-  const riverGlow = new THREE.PointLight(0x1a88cc, 3.0, riverHW * 18);
-  riverGlow.position.set(riverCX, 0.7, mh * 0.5); scene.add(riverGlow); torches.push(riverGlow);
-
-  // Ford accent lights (warm glow at crossing points)
-  [fordTZ, fordBZ].forEach(fz => {
-    const fl = new THREE.PointLight(0xddcc88, 1.8, riverHW * 8);
-    fl.position.set(riverCX, 0.5, fz); scene.add(fl); torches.push(fl);
-  });
-
-  // Side fill lights
-  const sunL = new THREE.PointLight(0x88cc55, 1.4, mw * 0.65);
-  sunL.position.set(mw * 0.15, 3.5, mh * 0.5); scene.add(sunL); torches.push(sunL);
-  const sunR = new THREE.PointLight(0x55aa88, 1.4, mw * 0.65);
-  sunR.position.set(mw * 0.85, 3.5, mh * 0.5); scene.add(sunR); torches.push(sunR);
-
-  // Corner accent lights
-  [[0.06,0.06],[0.94,0.06],[0.06,0.94],[0.94,0.94]].forEach(([fx,fz]) => {
-    const l = new THREE.PointLight(0xffcc44, 1.6, mw * 0.26);
-    l.position.set(mw * fx, 1.2, mh * fz); scene.add(l); torches.push(l);
-  });
+  const fill = new THREE.PointLight(0xffffff, 2.5, mw * 3);
+  fill.position.set(mw / 2, 6, mh / 2);
+  scene.add(fill); torches.push(fill);
 }
 
 // ── Characters ────────────────────────────────────────────────────────────────
